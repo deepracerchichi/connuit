@@ -5,6 +5,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Hero from "../components/Hero";
 import WhatWeDo from "../components/WhatWeDo"
 import HowItWorks from "../components/HowItWorks"
+import WhatYouCanBuild from "../components/WhatYouCanBuild"
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -53,6 +54,7 @@ scrollTl
       <Hero />
       <WhatWeDo />
       <HowItWorks />
+      <WhatYouCanBuild />
     </div>
   );
 }
