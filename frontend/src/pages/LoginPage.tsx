@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, Link } from "react-router";
+import { useNavigate } from "react-router";
 import { apiFetch, setToken, ApiError } from "../api/client";
+import { AuthLayout, ErrorBox, FloatingField, PasswordField, SubmitButton, SwitchLink } from "../components/auth/AuthLayout";
 
 interface LoginResponse {
   token: string;
@@ -25,7 +26,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       setToken(data.token);
-      navigate("/");
+      navigate("/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
     } finally {
@@ -34,36 +35,22 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg bg-white p-8 shadow">
-        <h1 className="text-xl font-semibold">Log in to Conduit</h1>
+    <AuthLayout
+      tag="Log in"
+      title="Welcome back."
+      subtitle="Your workflows kept running while you were away."
+      headline="Teach your workflows to make decisions."
+      onSubmit={handleSubmit}
+    >
+      <ErrorBox message={error} />
 
-        {error && <p className="rounded bg-red-50 p-2 text-sm text-red-700">{error}</p>}
+      <div className="mt-8 flex flex-col gap-4">
+        <FloatingField id="email" label="Email" type="email" autoComplete="email" value={email} onChange={setEmail} />
+        <PasswordField autoComplete="current-password" value={password} onChange={setPassword} />
+      </div>
 
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded border p-2"
-          required
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded border p-2"
-          required
-        />
-        <button type="submit" disabled={loading} className="w-full rounded bg-blue-600 p-2 text-white disabled:opacity-50">
-          {loading ? "Logging in..." : "Log in"}
-        </button>
-
-        <p className="text-sm text-gray-500">
-          No account? <Link to="/signup" className="text-blue-600">Sign up</Link>
-        </p>
-      </form>
-    </div>
+      <SubmitButton loading={loading} label="Log in" loadingLabel="Logging in…" />
+      <SwitchLink question="No account yet?" to="/signup" label="Create one" />
+    </AuthLayout>
   );
 }
