@@ -129,7 +129,10 @@ export default function WhatYouCanBuild() {
         .timeline({
           scrollTrigger: {
             trigger: section,
-            start: "top top",
+            // Short screens (or zoomed-in browsers) can't fit the heading and the cards at once.
+            // Then pin when the section's bottom reaches the screen's bottom, so the whole
+            // card row is visible while it slides; the heading has already scrolled away.
+            start: () => (section.offsetHeight > window.innerHeight ? "bottom bottom" : "top top"),
             end: () => `+=${distance()}`,
             pin: true,
             scrub: true,
@@ -145,7 +148,7 @@ export default function WhatYouCanBuild() {
 
   return (
     <section ref={sectionRef} id="what-you-can-build" className="relative z-10 overflow-hidden  bg-ink text-white">
-      <div className="flex flex-col md:h-screen">
+      <div className="flex flex-col md:min-h-screen">
         <div className="flex flex-col gap-6 px-5 pt-24 md:flex-row md:items-end md:justify-between md:px-15 md:pt-36">
           <div>
             <div className="inline-flex items-center gap-3 rounded-md bg-white/10 px-3 py-2 font-mono text-sm uppercase">
@@ -169,7 +172,7 @@ export default function WhatYouCanBuild() {
 
         <p className="px-5 pb-16 font-mono text-xs uppercase text-white/40 md:hidden">Swipe for more →</p>
 
-        <div className="relative mx-15 mb-8 hidden h-px bg-white/20 md:block">
+        <div className="relative mx-15 mb-16 mt-12 hidden h-px bg-white/20 md:block">
           <div className="js-build-bar absolute inset-0 origin-left bg-white" style={{ transform: "scaleX(0)" }} />
         </div>
       </div>

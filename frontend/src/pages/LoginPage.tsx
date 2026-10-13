@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
-import { apiFetch, setToken, ApiError } from "../api/client";
+import { apiFetch, setSession, ApiError } from "../api/client";
 import { AuthLayout, ErrorBox, FloatingField, PasswordField, SubmitButton, SwitchLink } from "../components/auth/AuthLayout";
 
 interface LoginResponse {
@@ -25,7 +25,7 @@ export default function LoginPage() {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      setToken(data.token);
+      setSession(data.token, data.user);
       navigate("/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");

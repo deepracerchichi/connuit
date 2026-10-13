@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { Check } from "lucide-react";
-import { apiFetch, setToken, ApiError } from "../api/client";
+import { apiFetch, setSession, ApiError } from "../api/client";
 import { cn } from "../lib/cn";
 import { AuthLayout, ErrorBox, FloatingField, PasswordField, SubmitButton, SwitchLink } from "../components/auth/AuthLayout";
 
@@ -39,7 +39,7 @@ export default function SignupPage() {
         body: JSON.stringify({ email, password }),
       });
       // Signup also logs you in: the backend returns a token straight away.
-      setToken(data.token);
+      setSession(data.token, data.user);
       navigate("/dashboard");
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
