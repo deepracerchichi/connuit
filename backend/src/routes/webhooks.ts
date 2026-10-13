@@ -12,7 +12,7 @@ webhooksRouter.post("/:token", async (req, res) => {
   }
 
   const runId = crypto.randomUUID();
-await runQueue.add("run", { workflowId: workflow.id, userId: workflow.userId, runId });
+await runQueue.add("run", { workflowId: workflow.id, userId: workflow.userId, runId, input: req.body });
 return res.status(202).json({ message: "Run queued", runId });
 
 });

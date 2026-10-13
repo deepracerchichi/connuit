@@ -5,6 +5,7 @@ export interface RunJobData {
   workflowId: string;
   userId: string;
   runId: string;
+  input?: unknown; // webhook payload; undefined for manual and cron runs
 }
 
 

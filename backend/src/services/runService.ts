@@ -6,7 +6,7 @@ import { runWorkflow } from "../engine/runWorkflow.js";
 import { CredentialModel } from "../model/credentialSchema.js";
 import { decrypt } from "../crypto/encryption.js";
 
-export async function triggerRun(userId: string, workflowId: string, runId: string) {
+export async function triggerRun(userId: string, workflowId: string, runId: string, input?: unknown) {
   const doc = await WorkflowModel.findOne({ _id: workflowId, userId });
   if (!doc) {
     throw new AppError("Workflow not found", 404);
@@ -28,7 +28,7 @@ export async function triggerRun(userId: string, workflowId: string, runId: stri
     { upsert: true }
   );
 
-  const run = await runWorkflow(workflow, runId, credentialValues);
+  const run = await runWorkflow(workflow, runId, credentialValues, input);
 
   await RunModel.findByIdAndUpdate(runId, { status: run.status, steps: run.steps });
 
