@@ -68,7 +68,7 @@ export default function HowItWorks() {
   }, { scope: sectionRef });
 
   return (
-    <section ref={sectionRef} className="relative z-10  bg-paper text-ink">
+    <section ref={sectionRef} id="how-it-works" className="relative z-10  bg-paper text-ink">
       <div className="px-5 pb-12 pt-24 md:px-15 md:pb-16 md:pt-36">
         <div className="inline-flex items-center gap-3 rounded-md bg-ink/5 px-3 py-2 font-mono text-sm uppercase">
           <span className="h-3 w-3 bg-accent ring-1 ring-ink/20" />

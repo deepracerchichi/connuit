@@ -144,7 +144,7 @@ export default function WhatYouCanBuild() {
   }, { scope: sectionRef });
 
   return (
-    <section ref={sectionRef} className="relative z-10 overflow-hidden  bg-ink text-white">
+    <section ref={sectionRef} id="what-you-can-build" className="relative z-10 overflow-hidden  bg-ink text-white">
       <div className="flex flex-col md:h-screen">
         <div className="flex flex-col gap-6 px-5 pt-24 md:flex-row md:items-end md:justify-between md:px-15 md:pt-36">
           <div>
