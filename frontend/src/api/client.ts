@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000"
+export const API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
 export class ApiError extends Error {
     status: number;
@@ -8,16 +8,42 @@ export class ApiError extends Error {
     }
 }
 
+const TOKEN_KEY = "token";
+const USER_KEY = "user";
+
+export interface StoredUser {
+  id: string;
+  email: string;
+}
+
 export function getToken(): string | null {
-    return localStorage.getItem("token");
+    return localStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem("token", token);
+  localStorage.setItem(TOKEN_KEY, token);
 }
 
+// Login and signup both return { token, user }. Keep the user so the dashboard
+// can show who's signed in without another request.
+export function setSession(token: string, user: StoredUser): void {
+  setToken(token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+export function getUser(): StoredUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as StoredUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Logging out = forgetting the token and the user.
 export function clearToken(): void {
-  localStorage.removeItem("token");
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
 }
 
 // A token existing isn't enough: it may have expired (the backend issues 7-day tokens).
@@ -46,7 +72,7 @@ export function isLoggedIn(): boolean {
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
     const token = getToken();
 
-    const response = await fetch(`${BASE_URL}${path}`, {
+    const response = await fetch(`${API_URL}${path}`, {
 
         ...options,
         headers: {
@@ -55,6 +81,13 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
             ...options.headers,
         }
     });
+
+    // We sent a token and the server rejected it (expired, or the secret changed):
+    // the session is over, so clear it and go to the login page.
+    if (response.status === 401 && token) {
+        clearToken();
+        if (window.location.pathname !== "/login") window.location.assign("/login");
+    }
 
     if(!response.ok) {
         const body = await response.json().catch(() => null);
@@ -67,5 +100,3 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   }
     return response.json();
 }
-
-
