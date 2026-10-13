@@ -7,6 +7,7 @@ import WhatWeDo from "../components/WhatWeDo"
 import HowItWorks from "../components/HowItWorks"
 import WhatYouCanBuild from "../components/WhatYouCanBuild"
 import UnderTheHood from "../components/UnderTheHood"
+import Footer from "../components/Footer"
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -57,6 +58,7 @@ scrollTl
       <HowItWorks />
       <WhatYouCanBuild />
       <UnderTheHood />
+      <Footer />
     </div>
   );
 }

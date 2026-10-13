@@ -108,7 +108,7 @@ export default function UnderTheHood() {
   }, { scope: sectionRef });
 
   return (
-    <section ref={sectionRef} className="relative z-10 rounded-t-3xl bg-paper text-ink">
+    <section ref={sectionRef} id="under-the-hood" className="relative z-10 rounded-3xl bg-paper text-ink">
       <div className="flex flex-col gap-6 px-5 pt-24 md:flex-row md:items-end md:justify-between md:px-15 md:pt-36">
         <div>
           <div className="inline-flex items-center gap-3 rounded-md bg-ink/5 px-3 py-2 font-mono text-sm uppercase">
