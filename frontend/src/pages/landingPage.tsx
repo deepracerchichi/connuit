@@ -6,6 +6,7 @@ import Hero from "../components/Hero";
 import WhatWeDo from "../components/WhatWeDo"
 import HowItWorks from "../components/HowItWorks"
 import WhatYouCanBuild from "../components/WhatYouCanBuild"
+import UnderTheHood from "../components/UnderTheHood"
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -55,6 +56,7 @@ scrollTl
       <WhatWeDo />
       <HowItWorks />
       <WhatYouCanBuild />
+      <UnderTheHood />
     </div>
   );
 }
