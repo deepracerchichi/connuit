@@ -1,6 +1,7 @@
 
 import type { WorkflowNode } from "../domain/workflow.js";
-import { interpolate } from "./interpolate.js";
+import { interpolate, interpolateDeep } from "./interpolate.js";
+
 
 export async function executeNode(node: WorkflowNode, credentialValues: Map<string, string>, previousOutput?: unknown): Promise<unknown> {
     switch (node.config.type) {
@@ -9,7 +10,13 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
                 ? credentialValues.get(node.config.credentialId)
                 : undefined;
 
+
+
             const url = interpolate(node.config.url, previousOutput, credentialValue);
+const body = node.config.body !== undefined
+    ? interpolateDeep(node.config.body, previousOutput, credentialValue)
+    : undefined;
+
 
             const headers: Record<string, string> = {};
 
@@ -18,14 +25,14 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
             }
 
             const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === "content-type");
-            if (node.config.body !== undefined && !hasContentType) {
+            if (body !== undefined && !hasContentType) {
                 headers["Content-Type"] = "application/json";
             }
             
             const response = await fetch(url, {
                 method: node.config.method,
                 headers,
-                body: node.config.body !== undefined ? JSON.stringify(node.config.body) : undefined,
+                body: body !== undefined ? JSON.stringify(body) : undefined,
             });
 
             if (!response.ok) {

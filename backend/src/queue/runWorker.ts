@@ -7,7 +7,8 @@ import { RunModel } from "../model/runSchema.js";
 export const runWorker = new Worker<RunJobData>(
   "workflow-runs",
   async (job) => {
-    await triggerRun(job.data.userId, job.data.workflowId, job.data.runId);
+    await triggerRun(job.data.userId, job.data.workflowId, job.data.runId, job.data.input);
+
   },
   {
     connection: redisConnection,
