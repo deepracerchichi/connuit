@@ -7,12 +7,13 @@
 
 @theme {
   --color-ink: #0e4229;
-  --color-paper: #e6efea;
+  --color-paper: #f2f8f5;
   --color-accent: #bef264;
+  --color-mint: #d3e8da;
 
   --font-sans: "Google Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Roboto Mono", ui-monospace, monospace;
-   --ease-snap: cubic-bezier(0.25, 1, 0.5, 1);
+  
 }
 
 @layer base {
