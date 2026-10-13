@@ -20,8 +20,26 @@ export function clearToken(): void {
   localStorage.removeItem("token");
 }
 
+// A token existing isn't enough: it may have expired (the backend issues 7-day tokens).
+// A JWT's middle part is base64url JSON holding "exp" (seconds since 1970), so we can
+// read it here. This only decides what the UI shows; the backend still verifies the
+// signature on every request, so a faked token gets nobody anywhere.
 export function isLoggedIn(): boolean {
-  return getToken() !== null;
+  const token = getToken();
+  if (!token) return false;
+
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const { exp } = JSON.parse(atob(payload)) as { exp?: number };
+    if (typeof exp === "number" && exp * 1000 <= Date.now()) {
+      clearToken(); // expired: forget it so the site stops treating you as logged in
+      return false;
+    }
+    return true;
+  } catch {
+    clearToken(); // not a readable JWT at all
+    return false;
+  }
 }
 
 
