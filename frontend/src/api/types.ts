@@ -4,7 +4,14 @@
 export type Trigger = { type: "manual" } | { type: "webhook" } | { type: "cron"; schedule: string };
 
 export type NodeConfig =
-  | { type: "http_request"; url: string; method: "GET" | "POST" | "PUT" | "DELETE"; credentialId?: string }
+  | {
+      type: "http_request";
+      url: string;
+      method: "GET" | "POST" | "PUT" | "DELETE";
+      headers?: Record<string, string>;
+      body?: unknown;
+      credentialId?: string;
+    }
   | { type: "llm_call"; prompt: string; systemPrompt?: string };
 
 export interface WorkflowNode {

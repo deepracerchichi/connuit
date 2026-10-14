@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Check, Copy, Globe, Play, Sparkles, Workflow as WorkflowIcon } from "lucide-react";
+import { ArrowRight, Globe, Pencil, Play, Plus, Sparkles, Workflow as WorkflowIcon } from "lucide-react";
 import { API_URL, apiFetch, ApiError } from "../../api/client";
 import type { Run, RunStatus, RunWithWorkflow, Workflow } from "../../api/types";
-import { buttonClass } from "../../components/Button";
-import { cn } from "../../lib/cn";
 import { errorMessage, useActivity } from "../useApi";
-import { EmptyState, ErrorState, LoadingBlock, PageHeader, StatusBadge, StatusIcon, timeAgo, TriggerBadge, useRise } from "../ui";
+import { ActionChip, actionChipClass, actionClass, EmptyState, ErrorState, LoadingBlock, PageHeader, StatusBadge, StatusIcon, timeAgo, TriggerBadge, useRise, WebhookUrl } from "../ui";
+
+const newWorkflowButton = (
+  <Link to="/dashboard/workflows/new" className={actionChipClass()}>
+    New workflow <ActionChip icon={Plus} motion="spin" />
+  </Link>
+);
 
 export default function WorkflowsPage() {
   const { data, error, loading, reload } = useActivity();
@@ -14,7 +18,12 @@ export default function WorkflowsPage() {
 
   return (
     <div ref={ref}>
-      <PageHeader tag="Workflows" title="Workflows." subtitle="Everything you've automated, and how it last went." />
+      <PageHeader
+        tag="Workflows"
+        title="Workflows."
+        subtitle="Everything you've automated, and how it last went."
+        action={newWorkflowButton}
+      />
 
       <div className="mt-10">
         {error ? (
@@ -25,7 +34,8 @@ export default function WorkflowsPage() {
           <EmptyState
             icon={<WorkflowIcon className="h-5 w-5" strokeWidth={1.75} />}
             title="No workflows yet"
-            body="Workflows you create through the API appear here. The visual editor is coming next."
+            body="Line up a few steps, pick when they run, and watch them go."
+            action={newWorkflowButton}
           />
         ) : (
           <div className="grid gap-4 xl:grid-cols-2">
@@ -59,7 +69,11 @@ function WorkflowCard({ workflow, lastRun, onRunFinished }: { workflow: Workflow
         )}
       </div>
 
-      <h2 className="mt-5 text-2xl tracking-tight md:text-3xl">{workflow.name}</h2>
+      <h2 className="mt-5 text-2xl tracking-tight md:text-3xl">
+        <Link to={`/dashboard/workflows/${workflow._id}`} className="decoration-ink/20 underline-offset-4 hover:underline">
+          {workflow.name}
+        </Link>
+      </h2>
 
       {/* The steps, in order */}
       <ol className="mt-5 flex flex-wrap items-center gap-2">
@@ -85,37 +99,15 @@ function WorkflowCard({ workflow, lastRun, onRunFinished }: { workflow: Workflow
       )}
 
       <div className="mt-auto flex flex-wrap items-center justify-end gap-2 pt-6">
-        <Link to="/dashboard/runs" state={{ workflowId: workflow._id }} className={buttonClass("secondary", "text-sm")}>
+        <Link to="/dashboard/runs" state={{ workflowId: workflow._id }} className={actionClass("ghost")}>
           View runs
+        </Link>
+        <Link to={`/dashboard/workflows/${workflow._id}`} className={actionClass("secondary")}>
+          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
         </Link>
         <RunNowButton workflowId={workflow._id} onFinished={onRunFinished} />
       </div>
     </article>
-  );
-}
-
-function WebhookUrl({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
-
-  return (
-    <div className="mt-5 flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-white">
-      <span className="shrink-0 font-mono text-xs text-white/45">POST</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs">{url}</span>
-      <button
-        type="button"
-        onClick={copy}
-        aria-label="Copy webhook URL"
-        className="rounded-md p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-      >
-        {copied ? <Check className="h-4 w-4 text-accent" strokeWidth={2} /> : <Copy className="h-4 w-4" strokeWidth={1.75} />}
-      </button>
-    </div>
   );
 }
 
@@ -182,7 +174,7 @@ function RunNowButton({ workflowId, onFinished }: { workflowId: string; onFinish
   return (
     <div className="flex items-center gap-3">
       {phase.kind === "error" && <span className="text-sm text-red-700">{phase.message}</span>}
-      <button type="button" onClick={start} className={cn(buttonClass("primary", "inline-flex items-center gap-2 text-sm"))}>
+      <button type="button" onClick={start} className={actionClass("primary")}>
         <Play className="h-3.5 w-3.5" strokeWidth={2} /> Run now
       </button>
     </div>

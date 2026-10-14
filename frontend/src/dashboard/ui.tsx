@@ -1,7 +1,7 @@
-import { useRef, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { CircleAlert, CircleCheck, CircleX, Clock, LoaderCircle, Play, RotateCw, Webhook } from "lucide-react";
+import { Check, CircleAlert, CircleCheck, CircleX, Clock, Copy, LoaderCircle, Play, RotateCw, Webhook, type LucideIcon } from "lucide-react";
 import type { Run, RunStatus, Trigger } from "../api/types";
 import { cn } from "../lib/cn";
 
@@ -34,7 +34,8 @@ export function useRise<T extends HTMLElement>(ready: boolean): RefObject<T | nu
     const fresh = ref.current.querySelectorAll<HTMLElement>(".js-rise:not([data-risen])");
     fresh.forEach((el) => (el.dataset.risen = ""));
     if (fresh.length === 0 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    gsap.from(fresh, { autoAlpha: 0, y: 20, duration: 0.6, stagger: 0.04, ease: "power3.out" });
+    // clearProps: once risen, hand opacity back to CSS (e.g. the dimmed "waiting" steps during a test run).
+    gsap.from(fresh, { autoAlpha: 0, y: 20, duration: 0.6, stagger: 0.04, ease: "power3.out", clearProps: "opacity,visibility,transform" });
   }, { dependencies: [ready], scope: ref });
   return ref;
 }
@@ -174,5 +175,76 @@ export function LoadingBlock({ rows = 3 }: { rows?: number }) {
         <div key={i} className="h-20 animate-pulse rounded-2xl bg-ink/5" />
       ))}
     </div>
+  );
+}
+
+/* ---------- A webhook URL with a copy button ---------- */
+
+export function WebhookUrl({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="mt-5 flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-white">
+      <span className="shrink-0 font-mono text-xs text-white/45">POST</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs">{url}</span>
+      <button
+        type="button"
+        onClick={copy}
+        aria-label="Copy webhook URL"
+        className="rounded-md p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+      >
+        {copied ? <Check className="h-4 w-4 text-accent" strokeWidth={2} /> : <Copy className="h-4 w-4" strokeWidth={1.75} />}
+      </button>
+    </div>
+  );
+}
+
+/* ---------- Dashboard buttons ----------
+   Built on the auth pages' button: dark green that turns lime on hover, mono uppercase,
+   rounded-xl, and the same easing as the landing page's CTA. */
+
+export type ActionVariant = "primary" | "secondary" | "ghost" | "danger";
+
+const ACTION_VARIANTS: Record<ActionVariant, string> = {
+  primary: "bg-ink text-white hover:bg-accent hover:text-ink",
+  secondary: "bg-white text-ink ring-1 ring-ink/15 hover:bg-mint hover:ring-ink/30",
+  ghost: "text-ink/65 hover:bg-ink/5 hover:text-ink",
+  danger: "text-red-700 hover:bg-red-50",
+};
+
+export function actionClass(variant: ActionVariant = "secondary", className?: string) {
+  return cn(
+    "inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 font-mono text-xs uppercase tracking-wide",
+    "transition-[background-color,color,box-shadow] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+    "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/60 disabled:pointer-events-none disabled:opacity-45",
+    ACTION_VARIANTS[variant],
+    className,
+  );
+}
+
+// A page's main action: the primary button plus the lime icon chip from the auth pages.
+// Put `group` on the button (actionChipClass does) so the chip reacts to hovering the whole button.
+export function actionChipClass(className?: string) {
+  return actionClass("primary", cn("group h-12 gap-4 pl-5 pr-2", className));
+}
+
+export function ActionChip({ icon: Icon, motion = "slide" }: { icon: LucideIcon; motion?: "slide" | "spin" }) {
+  return (
+    <span className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-accent text-ink transition-colors duration-300 group-hover:bg-ink group-hover:text-accent">
+      {motion === "spin" ? (
+        <Icon className="h-4 w-4 transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] group-hover:rotate-90" strokeWidth={2} />
+      ) : (
+        <>
+          <Icon className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-8" strokeWidth={2} />
+          <Icon className="absolute h-4 w-4 -translate-x-8 transition-transform duration-300 group-hover:translate-x-0" strokeWidth={2} />
+        </>
+      )}
+    </span>
   );
 }

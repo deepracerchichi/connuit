@@ -1,10 +1,9 @@
 import { Link } from "react-router";
 import { ArrowRight, History } from "lucide-react";
-import { buttonClass } from "../../components/Button";
 import { cn } from "../../lib/cn";
 import { useActivity } from "../useApi";
 import { RunRow } from "../RunRow";
-import { EmptyState, ErrorState, isToday, LoadingBlock, PageHeader, useRise } from "../ui";
+import { ActionChip, actionChipClass, EmptyState, ErrorState, isToday, LoadingBlock, PageHeader, useRise } from "../ui";
 
 function greeting() {
   const hour = new Date().getHours();
@@ -37,8 +36,8 @@ export default function OverviewPage() {
         title={greeting()}
         subtitle="Here's what your workflows have been up to."
         action={
-          <Link to="/dashboard/workflows" className={buttonClass("primary", "inline-flex items-center gap-2")}>
-            Your workflows <ArrowRight className="h-4 w-4" strokeWidth={2} />
+          <Link to="/dashboard/workflows" className={actionChipClass()}>
+            Your workflows <ActionChip icon={ArrowRight} />
           </Link>
         }
       />
@@ -81,7 +80,11 @@ export default function OverviewPage() {
                     icon={<History className="h-5 w-5" strokeWidth={1.75} />}
                     title="No runs yet"
                     body="Run a workflow and every step it takes shows up here."
-                    action={<Link to="/dashboard/workflows" className={buttonClass("primary")}>Go to workflows</Link>}
+                    action={
+                      <Link to="/dashboard/workflows" className={actionChipClass()}>
+                        Go to workflows <ActionChip icon={ArrowRight} />
+                      </Link>
+                    }
                   />
                 ) : (
                   <div className="divide-y divide-ink/10 overflow-hidden rounded-2xl border border-ink/10 bg-white">
