@@ -2,11 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Lock, Plus, Trash2, X } from "lucide-react";
 import { apiFetch } from "../../api/client";
 import type { Credential } from "../../api/types";
-import { buttonClass } from "../../components/Button";
 import { ErrorBox, FloatingField } from "../../components/auth/AuthLayout";
 import { cn } from "../../lib/cn";
 import { errorMessage, useApi } from "../useApi";
-import { EmptyState, ErrorState, LoadingBlock, PageHeader, timeAgo, useRise } from "../ui";
+import { ActionChip, actionChipClass, actionClass, EmptyState, ErrorState, LoadingBlock, PageHeader, timeAgo, useRise } from "../ui";
 
 const PROVIDERS = ["Slack", "OpenAI", "GitHub", "Discord", "Other"];
 
@@ -16,8 +15,8 @@ export default function CredentialsPage() {
   const ref = useRise<HTMLDivElement>(data !== null);
 
   const addButton = (
-    <button type="button" onClick={() => setAdding(true)} className={buttonClass("primary", "inline-flex items-center gap-2")}>
-      <Plus className="h-4 w-4" strokeWidth={2} /> Add credential
+    <button type="button" onClick={() => setAdding(true)} className={actionChipClass()}>
+      Add credential <ActionChip icon={Plus} motion="spin" />
     </button>
   );
 
@@ -91,14 +90,14 @@ function CredentialCard({ credential, onDeleted }: { credential: Credential; onD
         <span className="text-ink/45">Added {timeAgo(credential.createdAt)}</span>
         {confirming ? (
           <span className="flex items-center gap-2">
-            <button type="button" onClick={() => setConfirming(false)} className="rounded-md px-2 py-1 text-ink/60 hover:bg-ink/5">
+            <button type="button" onClick={() => setConfirming(false)} className={actionClass("ghost", "h-8 px-3")}>
               Keep
             </button>
             <button
               type="button"
               onClick={remove}
               disabled={deleting}
-              className="rounded-md bg-red-600 px-3 py-1 text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+              className={actionClass("danger", "h-8 bg-red-600 px-3 text-white hover:bg-red-700 hover:text-white")}
             >
               {deleting ? "Deleting…" : "Delete"}
             </button>
@@ -190,8 +189,8 @@ function AddCredentialModal({ onClose, onSaved }: { onClose: () => void; onSaved
         </p>
 
         <div className="mt-6 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className={buttonClass("secondary")}>Cancel</button>
-          <button type="submit" disabled={saving} className={buttonClass("primary")}>
+          <button type="button" onClick={onClose} className={actionClass("ghost")}>Cancel</button>
+          <button type="submit" disabled={saving} className={actionClass("primary", "px-6")}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
