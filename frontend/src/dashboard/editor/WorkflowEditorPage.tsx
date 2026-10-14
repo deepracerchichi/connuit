@@ -1,39 +1,45 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router";
-import { ArrowLeft, ArrowRight, CircleAlert, CircleCheck, CircleX, FlaskConical, LoaderCircle, Plus, RotateCw, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { ArrowLeft, ArrowRight, CircleAlert, CircleCheck, CircleX, FlaskConical, LoaderCircle, RotateCw, Trash2, X } from "lucide-react";
 import { API_URL, apiFetch } from "../../api/client";
 import type { Credential, Run, Workflow } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { errorMessage, useApi } from "../useApi";
-import { actionClass, describeCron, ErrorState, LoadingBlock, runDuration, useRise } from "../ui";
+import { actionClass, ErrorState, runDuration, useMediaQuery, useRise } from "../ui";
 import { detectBlock } from "./blocks";
 import { emptyDraft, fromWorkflow, toPayload, validate, type Draft, type EditorStep, type Problems } from "./model";
+import Canvas from "./Canvas";
 import Pipeline from "./Pipeline";
 import { FriendlySettings, StepSettings, TriggerSettings } from "./Settings";
-import { TEMPLATES, type Template } from "./templates";
+import { TEMPLATES } from "./templates";
 import { MAX_ATTEMPTS, useTestRun, type TestPhase } from "./useTestRun";
 
 export default function WorkflowEditorPage() {
-  const { id = "new" } = useParams();
+  // Existing workflows: /dashboard/workflows/:id. New ones arrive from the gallery as
+  // /dashboard/workflows/new/:template (a template key, or "scratch").
+  const { id, template: templateKey } = useParams();
   const isNew = id === "new";
   const navigate = useNavigate();
+  const [start] = useState(() => (isNew ? startingPoint(templateKey) : null)); // worked out once, on arrival
 
-  const [draft, setDraft] = useState<Draft | null>(isNew ? emptyDraft() : null);
+  const [draft, setDraft] = useState<Draft | null>(start?.draft ?? null);
   const [savedCopy, setSavedCopy] = useState<string>(""); // the draft as last saved, to spot unsaved changes
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selected, setSelected] = useState("trigger");
-  const [insertAt, setInsertAt] = useState<number | null>(isNew ? 0 : null);
+  const [selected, setSelected] = useState<string | null>(start?.selected ?? null); // what the inspector shows; null = closed
+  const [insertAt, setInsertAt] = useState<number | null>(start?.insertAt ?? null);
   const [problems, setProblems] = useState<Problems | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [choosingTemplate, setChoosingTemplate] = useState(isNew); // new workflows start at the gallery
   const [advanced, setAdvanced] = useState<Set<string>>(new Set()); // steps shown with the full form
 
   const credentials = useApi<Credential[]>("/credentials");
   const test = useTestRun();
   const ref = useRise<HTMLDivElement>(draft !== null);
+  const isDesktop = useMediaQuery("(min-width: 1024px)"); // canvas on desktop, vertical list on phones
 
   // Load the workflow being edited (a brand new one starts empty).
   useEffect(() => {
@@ -63,28 +69,32 @@ export default function WorkflowEditorPage() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
+  // Esc closes the inspector (the step picker handles Esc itself while it is open).
+  useEffect(() => {
+    if (insertAt !== null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !(e.target as HTMLElement).closest("input, textarea, select")) setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [insertAt]);
+
+  if (isNew && !start) return <Navigate to="/dashboard/workflows/new" replace />; // unknown template
+
   if (loadError) {
     return (
-      <div className="pt-8">
-        <ErrorState message={loadError} onRetry={() => window.location.reload()} />
+      <div className="flex h-svh items-center justify-center bg-paper p-6">
+        <div className="w-full max-w-lg">
+          <ErrorState message={loadError} onRetry={() => window.location.reload()} />
+        </div>
       </div>
     );
   }
-  if (!draft) return <LoadingBlock rows={4} />;
-
-  if (choosingTemplate) {
+  if (!draft) {
     return (
-      <TemplateGallery
-        onPick={(template) => {
-          const picked = template ? template.build() : emptyDraft();
-          setDraft(picked);
-          setChoosingTemplate(false);
-          setInsertAt(template ? null : 0); // from scratch: open the step picker straight away
-          // Templates usually need one thing from you (a Slack channel): open that step.
-          const needsSetup = picked.steps.find((s) => s.url === "{{credential}}" && !s.credentialId);
-          setSelected(needsSetup?.id ?? "trigger");
-        }}
-      />
+      <div className="flex h-svh items-center justify-center bg-paper" aria-label="Loading">
+        <LoaderCircle className="h-6 w-6 animate-spin text-ink/40" strokeWidth={2} />
+      </div>
     );
   }
 
@@ -119,7 +129,7 @@ export default function WorkflowEditorPage() {
   }
 
   function removeStep(index: number) {
-    if (draft!.steps[index]?.id === selected) setSelected("trigger");
+    if (draft!.steps[index]?.id === selected) setSelected(null);
     edit((d) => ({ ...d, steps: d.steps.filter((_, i) => i !== index) }));
   }
 
@@ -158,7 +168,9 @@ export default function WorkflowEditorPage() {
   // A test always runs what's on screen, so save first if anything changed.
   async function runTest() {
     const saved = dirty || isNew ? await save() : workflow;
-    if (saved) test.start(saved._id);
+    if (!saved) return;
+    setSelected(null); // close the inspector so the whole pipe is visible while it runs
+    test.start(saved._id);
   }
 
   async function deleteWorkflow() {
@@ -219,112 +231,142 @@ export default function WorkflowEditorPage() {
     );
   };
 
-  return (
-    <div ref={ref}>
-      <Link to="/dashboard/workflows" className="js-rise inline-flex items-center gap-2 text-sm text-ink/60 hover:text-ink">
-        <ArrowLeft className="h-4 w-4" strokeWidth={2} /> Workflows
-      </Link>
+  const inspectorOpen = selected === "trigger" || selectedIndex >= 0;
+  const statusText = saving ? "Saving…" : dirty ? "Unsaved changes" : isNew ? "Not saved yet" : "All changes saved";
+  const hasBanner = Boolean(problems?.general || saveError || test.phase !== "idle");
+  const banners = (
+    <>
+      {(problems?.general || saveError) && (
+        <p role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
+          <CircleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />
+          {saveError ?? problems?.general}
+        </p>
+      )}
+      <TestBanner phase={test.phase} run={test.run} attempt={test.attempt} error={test.error} workflowId={test.workflowId} onClose={test.reset} />
+    </>
+  );
 
-      {/* ---------- Header: name + actions ---------- */}
-      <header className="mt-6 flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+  // Shared by the desktop canvas and the phone list.
+  const pipeProps = {
+    draft,
+    insertAt,
+    onOpenInsert: setInsertAt,
+    onInsert: insertStep,
+    onMove: moveStep,
+    onRemove: removeStep,
+    problems,
+    run: test.phase === "idle" ? null : test.run,
+  };
+
+  return (
+    <div ref={ref} className="flex h-svh flex-col overflow-hidden bg-paper text-ink">
+      {/* ---------- Top bar: back, name, actions ---------- */}
+      <header className="relative z-40 flex h-16 shrink-0 items-center gap-2 border-b border-ink/10 bg-paper px-2 sm:gap-3 sm:px-4">
+        <Link
+          to="/dashboard/workflows"
+          title="Back to workflows"
+          className="flex h-10 shrink-0 items-center gap-2 rounded-xl px-2.5 text-sm text-ink/60 transition-colors hover:bg-ink/5 hover:text-ink"
+        >
+          <ArrowLeft className="h-4 w-4" strokeWidth={2} />
+          <span className="hidden md:inline">Workflows</span>
+        </Link>
+        <span className="hidden h-6 w-px bg-ink/10 sm:block" />
+
         <div className="min-w-0 flex-1">
-          <span className="js-rise inline-flex items-center gap-3 rounded-md bg-ink/5 px-3 py-2 font-mono text-sm uppercase">
-            <span className="h-3 w-3 bg-accent ring-1 ring-ink/20" />
-            {isNew ? "New workflow" : "Workflow editor"}
-          </span>
           <input
             value={draft.name}
             onChange={(e) => edit((d) => ({ ...d, name: e.target.value }))}
             aria-label="Workflow name"
             placeholder="Name your workflow"
-            className="js-rise mt-5 w-full rounded-lg bg-transparent text-4xl tracking-tight outline-none placeholder:text-ink/25 hover:bg-ink/3 focus:bg-white md:text-6xl"
+            className="w-full max-w-md truncate rounded-lg bg-transparent px-2 py-0.5 text-base tracking-tight outline-none placeholder:text-ink/30 hover:bg-ink/5 focus:bg-white sm:text-lg"
           />
-          <p className="js-rise mt-2 text-sm text-ink/50">
-            {saving ? "Saving…" : dirty ? "Unsaved changes" : isNew ? "Not saved yet" : "All changes saved"}
-          </p>
+          <p className="truncate px-2 text-xs text-ink/45">{statusText}</p>
         </div>
 
-        <div className="js-rise flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           {!isNew &&
             (confirmDelete ? (
-              <span className="flex h-11 items-center gap-2 rounded-xl bg-red-50 pl-4 pr-1.5 text-sm text-red-700">
-                Delete it and its runs?
-                <button type="button" onClick={() => setConfirmDelete(false)} className={actionClass("ghost", "h-8 px-3 text-red-700 hover:bg-red-100 hover:text-red-800")}>
+              <span className="flex h-11 items-center gap-1.5 rounded-xl bg-red-50 pl-3 pr-1.5 text-sm text-red-700">
+                <span className="hidden lg:inline">Delete it and its runs?</span>
+                <span className="lg:hidden">Delete?</span>
+                <button type="button" onClick={() => setConfirmDelete(false)} className={actionClass("ghost", "h-8 px-2.5 text-red-700 hover:bg-red-100 hover:text-red-800")}>
                   Keep
                 </button>
-                <button type="button" onClick={deleteWorkflow} className={actionClass("danger", "h-8 bg-red-600 px-3 text-white hover:bg-red-700 hover:text-white")}>
+                <button type="button" onClick={deleteWorkflow} className={actionClass("danger", "h-8 bg-red-600 px-2.5 text-white hover:bg-red-700 hover:text-white")}>
                   Delete
                 </button>
               </span>
             ) : (
-              <button type="button" onClick={() => setConfirmDelete(true)} className={actionClass("danger")}>
-                Delete
+              <button type="button" onClick={() => setConfirmDelete(true)} aria-label="Delete workflow" className={actionClass("danger", "px-3")}>
+                <Trash2 className="h-4 w-4 sm:hidden" strokeWidth={1.75} />
+                <span className="hidden sm:inline">Delete</span>
               </button>
             ))}
-          <button type="button" onClick={runTest} disabled={testing || saving} className={actionClass("secondary")}>
+          <button type="button" onClick={runTest} disabled={testing || saving} className={actionClass("secondary", "px-3")}>
             <FlaskConical className="h-4 w-4" strokeWidth={1.75} />
-            {dirty || isNew ? "Save & test" : "Test run"}
+            <span className="hidden sm:inline">{dirty || isNew ? "Save & test" : "Test run"}</span>
           </button>
-          <button type="button" onClick={save} disabled={saving || (!dirty && !isNew)} className={actionClass("primary", "px-6")}>
+          <button type="button" onClick={save} disabled={saving || (!dirty && !isNew)} className={actionClass("primary", "px-5")}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </header>
 
-      {isNew && (
-        <ol className="js-rise mt-6 grid gap-2 text-sm sm:grid-cols-3">
-          {[
-            "Click the green card to choose when it runs.",
-            "Click any step to change it, or + to add one.",
-            "Save, then Test run to watch it go.",
-          ].map((tip, i) => (
-            <li key={tip} className="flex items-start gap-3 rounded-xl bg-white px-4 py-3 ring-1 ring-ink/10">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent font-mono text-xs">{i + 1}</span>
-              <span className="text-ink/70">{tip}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      {(problems?.general || saveError) && (
-        <p role="alert" className="mt-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <CircleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />
-          {saveError ?? problems?.general}
-        </p>
-      )}
-
-      <TestBanner
-        phase={test.phase}
-        run={test.run}
-        attempt={test.attempt}
-        error={test.error}
-        workflowId={test.workflowId}
-        onClose={test.reset}
-      />
-
-      {/* ---------- Pipeline + settings ---------- */}
-      <div className="mt-10 grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_24rem] xl:grid-cols-[minmax(0,1fr)_27rem]">
-        <div className="mx-auto w-full max-w-xl">
-          <Pipeline
-            draft={draft}
-            selected={selected}
-            onSelect={(key) => setSelected(key)}
-            insertAt={insertAt}
-            onOpenInsert={setInsertAt}
-            onInsert={insertStep}
-            onMove={moveStep}
-            onRemove={removeStep}
-            problems={problems}
-            run={test.phase === "idle" ? null : test.run}
-            renderSettings={renderSettings}
+      {isDesktop ? (
+        /* ---------- Desktop: the canvas, with the inspector sliding over its right side ---------- */
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <Canvas
+            {...pipeProps}
+            selected={inspectorOpen ? selected : null}
+            onSelect={setSelected}
+            coveredRight={inspectorOpen ? INSPECTOR_SPACE : 0}
+            overlay={hasBanner ? banners : undefined}
           />
+          {inspectorOpen && (
+            <Inspector key={selected} onClose={() => setSelected(null)}>
+              {renderSettings(selected!)}
+            </Inspector>
+          )}
         </div>
-
-        <aside className="hidden lg:block">
-          <div className="sticky top-6">{renderSettings(selectedIndex >= 0 ? selected : "trigger")}</div>
-        </aside>
-      </div>
+      ) : (
+        /* ---------- Phones: the same steps as a vertical list, settings opening under the tapped step ---------- */
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4">
+          {hasBanner && <div className="mb-4 flex flex-col gap-2">{banners}</div>}
+          <Pipeline {...pipeProps} selected={selected ?? ""} onSelect={setSelected} renderSettings={renderSettings} />
+        </div>
+      )}
     </div>
+  );
+}
+
+/* ---------- The inspector: a step's settings, sliding in over the canvas ---------- */
+
+const INSPECTOR_SPACE = 448; // its 26rem width plus the gaps around it; the canvas keeps nodes out from under it
+
+function Inspector({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const panelRef = useRef<HTMLElement>(null);
+
+  useGSAP(() => {
+    if (!panelRef.current || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    gsap.from(panelRef.current, { x: 32, autoAlpha: 0, duration: 0.45, ease: "power3.out", clearProps: "transform,opacity,visibility" });
+  }, { scope: panelRef });
+
+  return (
+    <aside ref={panelRef} aria-label="Step settings" className="absolute bottom-4 right-4 top-4 z-30 flex w-[26rem] flex-col">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close settings"
+        title="Close (Esc)"
+        className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 transition-colors hover:bg-ink/5 hover:text-ink"
+      >
+        <X className="h-4 w-4" strokeWidth={2} />
+      </button>
+      {/* The settings panels bring their own card styling; inside the drawer, the drawer is the card */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-[0_24px_60px_-24px_rgba(14,66,41,0.4)] ring-1 ring-ink/10 [&>div]:rounded-none [&>div]:border-0">
+        {children}
+      </div>
+    </aside>
   );
 }
 
@@ -404,7 +446,7 @@ function TestBanner({
 
   const { icon, text, tone } = content[phase];
   return (
-    <div role="status" className={cn("mt-6 flex items-center gap-3 rounded-xl px-4 py-3 text-sm", tone)}>
+    <div role="status" className={cn("flex items-center gap-3 rounded-xl px-4 py-3 text-sm shadow-sm", tone)}>
       {icon}
       <span className="min-w-0 flex-1">{text}</span>
       {(phase === "succeeded" || phase === "failed" || phase === "error") && (
@@ -416,81 +458,16 @@ function TestBanner({
   );
 }
 
-/* ---------- Where a new workflow starts: pick something close, then adjust it ---------- */
+/* ---------- Where a new workflow starts ---------- */
 
-function TemplateGallery({ onPick }: { onPick: (template: Template | null) => void }) {
-  const ref = useRise<HTMLDivElement>(true);
-
-  return (
-    <div ref={ref}>
-      <div>
-        <Link to="/dashboard/workflows" className="js-rise inline-flex items-center gap-2 text-sm text-ink/60 hover:text-ink">
-          <ArrowLeft className="h-4 w-4" strokeWidth={2} /> Workflows
-        </Link>
-      </div>
-      <span className="js-rise mt-6 inline-flex items-center gap-3 rounded-md bg-ink/5 px-3 py-2 font-mono text-sm uppercase">
-        <span className="h-3 w-3 bg-accent ring-1 ring-ink/20" />
-        New workflow
-      </span>
-      <h1 className="js-rise mt-6 text-5xl tracking-tight md:text-6xl">Start with a template.</h1>
-      <p className="js-rise mt-3 max-w-xl text-lg text-ink/60">Pick the one closest to what you want. You can change every part of it.</p>
-
-      <div className="mt-10 grid gap-4 md:grid-cols-2">
-        {TEMPLATES.map((template) => {
-          const draft = template.build();
-          return (
-            <button
-              key={template.key}
-              type="button"
-              onClick={() => onPick(template)}
-              className="js-rise group flex flex-col rounded-2xl border border-ink/10 bg-white p-6 text-left transition-[border-color,transform,box-shadow] hover:-translate-y-0.5 hover:border-ink hover:shadow-[0_20px_40px_-24px_rgba(14,66,41,0.45)]"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent">
-                  <template.icon className="h-5 w-5" strokeWidth={1.75} />
-                </span>
-                <span className="rounded-full bg-ink/5 px-3 py-1 text-xs text-ink/60">
-                  {draft.trigger.type === "cron" ? describeCron(draft.trigger.schedule) : draft.trigger.type === "webhook" ? "When another app calls it" : "When you click Run"}
-                </span>
-              </div>
-              <h2 className="mt-5 text-2xl tracking-tight">{template.title}</h2>
-              <p className="mt-2 leading-relaxed text-ink/60">{template.description}</p>
-
-              {/* Its steps, as a mini pipe */}
-              <div className="mt-6 flex flex-wrap items-center gap-1.5">
-                {draft.steps.map((step, i) => {
-                  const { block } = detectBlock(step);
-                  return (
-                    <span key={step.id} className="flex items-center gap-1.5">
-                      {i > 0 && <span className="h-0.5 w-4 rounded-full bg-ink" />}
-                      <span className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs", block.ai ? "bg-accent" : "bg-mint")}>
-                        <block.icon className="h-3.5 w-3.5" strokeWidth={1.75} />
-                        {block.label}
-                      </span>
-                    </span>
-                  );
-                })}
-              </div>
-
-              <span className="mt-6 inline-flex items-center gap-2 text-sm text-ink/60 transition-colors group-hover:text-ink">
-                Use this template <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={2} />
-              </span>
-            </button>
-          );
-        })}
-
-        <button
-          type="button"
-          onClick={() => onPick(null)}
-          className="js-rise flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-ink/25 p-6 text-center transition-colors hover:border-ink hover:bg-white md:col-span-2"
-        >
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink/5">
-            <Plus className="h-5 w-5" strokeWidth={1.75} />
-          </span>
-          <span className="text-lg">Start from scratch</span>
-          <span className="text-sm text-ink/55">An empty pipe: add your own steps one by one.</span>
-        </button>
-      </div>
-    </div>
-  );
+function startingPoint(templateKey: string | undefined) {
+  if (templateKey === "scratch") {
+    return { draft: emptyDraft(), selected: null, insertAt: 0 }; // empty pipe, step picker open
+  }
+  const template = TEMPLATES.find((t) => t.key === templateKey);
+  if (!template) return null;
+  const draft = template.build();
+  // Templates usually need one thing from you (a Slack channel): open that step.
+  const needsSetup = draft.steps.find((s) => s.url === "{{credential}}" && !s.credentialId);
+  return { draft, selected: needsSetup?.id ?? null, insertAt: null };
 }
