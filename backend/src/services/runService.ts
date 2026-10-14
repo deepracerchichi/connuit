@@ -30,10 +30,18 @@ export async function triggerRun(userId: string, workflowId: string, runId: stri
 
   const run = await runWorkflow(workflow, runId, credentialValues, input);
 
-  await RunModel.findByIdAndUpdate(runId, { status: run.status, steps: run.steps });
+    await RunModel.findByIdAndUpdate(runId, { status: run.status, steps: run.steps });
 
-  
+  // Throwing is how BullMQ knows this attempt failed: it retries with backoff,
+  // and after the last attempt the worker's "failed" handler marks the run failed.
+  // The failed step is already saved above, so the dashboard can show what broke.
+  if (run.status === "failed") {
+    const failedStep = run.steps.find((step) => step.status === "failed");
+    throw new Error(failedStep?.error ?? "Workflow run failed");
+  }
+
   return run;
+
 }
 
 async function resolveCredentials(workflow: Workflow, userId: string): Promise<Map<string, string>> {

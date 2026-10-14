@@ -5,8 +5,10 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { AppError } from "../errors/AppError.js";
 
 import { RunModel } from "../model/runSchema.js";
-import { scheduleCronWorkflow } from "../scheduler/cronScheduler.js";
+
 import { runQueue } from "../queue/runQueue.js";
+import { scheduleCronWorkflow, unscheduleCronWorkflow } from "../scheduler/cronScheduler.js";
+
 
 
 export const workflowsRouter = Router();
@@ -91,3 +93,49 @@ workflowsRouter.get("/:id/runs/:runId", async (req, res) => {
   }
   return res.json(run);
 });
+
+// PUT /workflows/:id — replace a workflow with its edited version
+workflowsRouter.put("/:id", async (req, res) => {
+  const userId = req.userId!;
+  const parsed = createWorkflowSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: { message: "Invalid workflow", details: parsed.error.flatten() } });
+  }
+
+  const workflow = await WorkflowModel.findOne({ _id: req.params.id, userId });
+  if (!workflow) {
+    throw new AppError("Workflow not found", 404);
+  }
+
+  // Keep the same webhook URL across edits (other apps are already calling it).
+  // Only create a token if it just became a webhook; drop it if it stopped being one.
+  const webhookToken = parsed.data.trigger.type === "webhook"
+    ? workflow.webhookToken ?? crypto.randomUUID()
+    : undefined;
+
+  workflow.set({ ...parsed.data, webhookToken });
+  await workflow.save();
+
+  // Throw away the old timer, then start a new one if it's (still) a cron workflow.
+  unscheduleCronWorkflow(workflow.id);
+  if (workflow.trigger.type === "cron") {
+    scheduleCronWorkflow(workflow.id, workflow.userId, workflow.trigger.schedule);
+  }
+
+  return res.json(workflow);
+});
+
+// DELETE /workflows/:id — remove a workflow, its schedule, and its run history
+workflowsRouter.delete("/:id", async (req, res) => {
+  const userId = req.userId!;
+  const workflow = await WorkflowModel.findOneAndDelete({ _id: req.params.id, userId });
+  if (!workflow) {
+    throw new AppError("Workflow not found", 404);
+  }
+
+  unscheduleCronWorkflow(workflow.id);
+  await RunModel.deleteMany({ workflowId: workflow.id });
+  return res.status(204).send();
+});
+
+

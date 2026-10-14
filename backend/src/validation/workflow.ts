@@ -1,4 +1,6 @@
 import { z } from "zod";
+import cron from "node-cron";
+
 
 const urlOrTemplate = z.string().refine(
   (val) => /\{\{(previousOutput|credential)\}\}/.test(val) || z.string().url().safeParse(val).success,
@@ -25,7 +27,11 @@ const nodeConfigSchema = z.discriminatedUnion("type", [
 const triggerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("manual") }),
   z.object({ type: z.literal("webhook") }),
-  z.object({ type: z.literal("cron"), schedule: z.string().min(1) }),
+  z.object({
+  type: z.literal("cron"),
+  schedule: z.string().refine((s) => cron.validate(s), { message: "Not a valid cron expression" }),
+}),
+
 ]);
 
 export const createWorkflowSchema = z.object({

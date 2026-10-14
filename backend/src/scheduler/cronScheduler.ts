@@ -33,4 +33,10 @@ export async function loadCronWorkflowsFromDatabase() {
   }
 }
 
+export function unscheduleCronWorkflow(workflowId: string) {
+  scheduledJobs.get(workflowId)?.stop(); // stop the timer, if there is one
+  scheduledJobs.delete(workflowId);
+}
+
+
 
