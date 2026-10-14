@@ -9,6 +9,7 @@ import RunsPage from "./dashboard/pages/RunsPage";
 import RunDetailPage from "./dashboard/pages/RunDetailPage";
 import CredentialsPage from "./dashboard/pages/CredentialsPage";
 import WorkflowEditorPage from "./dashboard/editor/WorkflowEditorPage";
+import NewWorkflowPage from "./dashboard/pages/NewWorkflowPage";
 
 export default function App() {
   return (
@@ -17,6 +18,12 @@ export default function App() {
         <Route path="/" element={<LandingPage/>} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        {/* Only the canvas editor is full screen (no sidebar). One route on purpose:
+            /dashboard/workflows/new/<template> (from the gallery) and /dashboard/workflows/<id>
+            both match it, so when saving turns the first into the second the editor isn't
+            rebuilt (an in-progress "Save & test" survives). The gallery at
+            /dashboard/workflows/new still wins below: a fixed word outranks ":id". */}
+        <Route path="/dashboard/workflows/:id/:template?" element={<RequireAuth><WorkflowEditorPage /></RequireAuth>} />
         <Route
           path="/dashboard"
           element={
@@ -27,8 +34,8 @@ export default function App() {
         >
           <Route index element={<OverviewPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
-          {/* "new" and real ids share one route, so saving a new workflow doesn't remount the editor */}
-          <Route path="workflows/:id" element={<WorkflowEditorPage />} />
+          {/* The template gallery stays inside the normal dashboard */}
+          <Route path="workflows/new" element={<NewWorkflowPage />} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/:workflowId/:runId" element={<RunDetailPage />} />
           <Route path="credentials" element={<CredentialsPage />} />

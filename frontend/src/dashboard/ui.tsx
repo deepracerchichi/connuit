@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { Check, CircleAlert, CircleCheck, CircleX, Clock, Copy, LoaderCircle, Play, RotateCw, Webhook, type LucideIcon } from "lucide-react";
@@ -246,5 +246,18 @@ export function ActionChip({ icon: Icon, motion = "slide" }: { icon: LucideIcon;
         </>
       )}
     </span>
+  );
+}
+
+/* ---------- True while a media query matches; updates when the window crosses it ---------- */
+
+export function useMediaQuery(query: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const media = window.matchMedia(query);
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(query).matches,
   );
 }

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ChevronDown, ChevronUp, CircleAlert, Clock, Play, Plus, Trash2, Webhook, X } from "lucide-react";
@@ -24,12 +24,10 @@ export interface PipelineProps {
   renderSettings: (id: string) => ReactNode; // shown under the selected card on small screens
 }
 
-export default function Pipeline(props: PipelineProps) {
-  const { draft, selected, onSelect, insertAt, onOpenInsert, onInsert, onMove, onRemove, problems, run, renderSettings } = props;
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  // How many steps the lime pulse has reached. Steps only show their result once
-  // the pulse arrives, so you watch the data travel down the pipe.
+// How many steps the lime pulse has reached during a test run. A step only shows its
+// result once the pulse arrives, so you watch the data travel along the pipe.
+// `axis` is the pipe's direction: "y" for the phone list, "x" for the desktop canvas.
+export function usePulse(rootRef: RefObject<HTMLElement | null>, run: Run | null, axis: "x" | "y") {
   const [reached, setReached] = useState(0);
   const target = run?.steps.length ?? 0;
   const watching = run !== null;
@@ -56,11 +54,12 @@ export default function Pipeline(props: PipelineProps) {
       setReached((r) => r + 1);
       return;
     }
+    const prop = axis === "y" ? "top" : "left";
     const tween = gsap.fromTo(
       pulse,
-      { top: "-6px", opacity: 1 },
+      { [prop]: "-6px", opacity: 1 },
       {
-        top: "calc(100% - 6px)",
+        [prop]: "calc(100% - 6px)",
         duration: 0.45,
         ease: "power1.in",
         onComplete: () => {
@@ -72,7 +71,15 @@ export default function Pipeline(props: PipelineProps) {
     return () => {
       tween.kill();
     };
-  }, [watching, target, reached]);
+  }, [rootRef, axis, watching, target, reached]);
+
+  return reached;
+}
+
+export default function Pipeline(props: PipelineProps) {
+  const { draft, selected, onSelect, insertAt, onOpenInsert, onInsert, onMove, onRemove, problems, run, renderSettings } = props;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const reached = usePulse(rootRef, run, "y");
 
   const steps = draft.steps;
 
@@ -148,21 +155,23 @@ function Pipe({ segment, open = false, short = false, onAdd }: { segment: number
 
 /* ---------- Cards ---------- */
 
-function selectOnKey(e: KeyboardEvent, select: () => void) {
+export function selectOnKey(e: KeyboardEvent, select: () => void) {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
     select();
   }
 }
 
+export function triggerSummary(trigger: Draft["trigger"]) {
+  return trigger.type === "cron"
+    ? { icon: Clock, title: trigger.schedule.trim() ? describeCron(trigger.schedule) : "Choose a schedule" }
+    : trigger.type === "webhook"
+      ? { icon: Webhook, title: "When another app calls it" }
+      : { icon: Play, title: "When you click Run" };
+}
+
 function TriggerCard({ draft, selected, onSelect }: { draft: Draft; selected: boolean; onSelect: () => void }) {
-  const trigger = draft.trigger;
-  const { icon: Icon, title } =
-    trigger.type === "cron"
-      ? { icon: Clock, title: trigger.schedule.trim() ? describeCron(trigger.schedule) : "Choose a schedule" }
-      : trigger.type === "webhook"
-        ? { icon: Webhook, title: "When another app calls it" }
-        : { icon: Play, title: "When you click Run" };
+  const { icon: Icon, title } = triggerSummary(draft.trigger);
 
   return (
     <div
@@ -278,12 +287,12 @@ function StepCard({
   );
 }
 
-function preview(output: unknown) {
+export function preview(output: unknown) {
   const text = typeof output === "string" ? output : JSON.stringify(output);
   return text.length > 220 ? `${text.slice(0, 220)}…` : text;
 }
 
-function IconButton({ label, disabled, danger, onClick, children }: { label: string; disabled?: boolean; danger?: boolean; onClick: () => void; children: ReactNode }) {
+export function IconButton({ label, disabled, danger, onClick, children }: { label: string; disabled?: boolean; danger?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -305,7 +314,7 @@ function IconButton({ label, disabled, danger, onClick, children }: { label: str
 }
 
 // Output and errors spring out of the card when the pulse delivers them.
-function PopIn({ className, children }: { className: string; children: ReactNode }) {
+export function PopIn({ className, children }: { className: string; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useGSAP(() => {
     if (!ref.current || reduceMotion()) return;
@@ -320,7 +329,7 @@ function PopIn({ className, children }: { className: string; children: ReactNode
 
 /* ---------- The ⊕ menu ---------- */
 
-function StepPicker({ onPick, onClose }: { onPick: (step: EditorStep) => void; onClose: () => void }) {
+export function StepPicker({ onPick, onClose }: { onPick: (step: EditorStep) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useGSAP(() => {
