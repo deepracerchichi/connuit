@@ -21,7 +21,9 @@ workflowsRouter.post("/", async (req, res) => {
   // 2. Validate
   const parsed = createWorkflowSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { message: "Invalid workflow", details: parsed.error.flatten() } });
+    // Lead with the first specific problem (e.g. "This workflow has a loop…") rather than a generic message.
+    const message = parsed.error.issues[0]?.message ?? "Invalid workflow";
+    return res.status(400).json({ error: { message, details: parsed.error.flatten() } });
   }
 
   
@@ -99,7 +101,9 @@ workflowsRouter.put("/:id", async (req, res) => {
   const userId = req.userId!;
   const parsed = createWorkflowSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { message: "Invalid workflow", details: parsed.error.flatten() } });
+    // Lead with the first specific problem (e.g. "This workflow has a loop…") rather than a generic message.
+    const message = parsed.error.issues[0]?.message ?? "Invalid workflow";
+    return res.status(400).json({ error: { message, details: parsed.error.flatten() } });
   }
 
   const workflow = await WorkflowModel.findOne({ _id: req.params.id, userId });

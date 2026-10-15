@@ -141,11 +141,27 @@ function isUrlOrPlaceholder(value: string) {
 const usesCredential = (step: EditorStep) =>
   [step.url, step.body, ...step.headers.map((h) => h.value)].some((value) => value.includes(CREDENTIAL));
 
+const nameKey = (name: string) => name.trim().toLowerCase();
+
+// Later steps refer to earlier ones by name ({{steps.Name}}), so a new step gets "Ask AI 2" rather than a second "Ask AI".
+export function uniqueName(name: string, steps: EditorStep[]): string {
+  const taken = new Set(steps.map((step) => nameKey(step.name)));
+  if (!taken.has(nameKey(name))) return name;
+  let n = 2;
+  while (taken.has(nameKey(`${name} ${n}`))) n++;
+  return `${name} ${n}`;
+}
+
 export function validate(draft: Draft): Problems | null {
   const steps: Record<string, string> = {};
+  const seenNames = new Set<string>();
 
   for (const step of draft.steps) {
+    const duplicate = seenNames.has(nameKey(step.name));
+    seenNames.add(nameKey(step.name));
+
     if (!step.name.trim()) steps[step.id] = "Give this step a name.";
+    else if (duplicate) steps[step.id] = "Another step already has this name. Give each step its own.";
     else if (step.kind === "llm_call" && !step.prompt.trim()) steps[step.id] = "Write a prompt for the AI.";
     else if (step.kind === "http_request") {
       if (!isUrlOrPlaceholder(step.url.trim())) steps[step.id] = "Enter a full URL, like https://api.example.com/data.";

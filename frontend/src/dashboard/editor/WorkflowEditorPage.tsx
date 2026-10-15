@@ -9,7 +9,7 @@ import { cn } from "../../lib/cn";
 import { errorMessage, useApi } from "../useApi";
 import { actionClass, ErrorState, runDuration, useMediaQuery, useRise } from "../ui";
 import { detectBlock } from "./blocks";
-import { emptyDraft, fromWorkflow, toPayload, validate, type Draft, type EditorStep, type Problems } from "./model";
+import { emptyDraft, fromWorkflow, toPayload, uniqueName, validate, type Draft, type EditorStep, type Problems } from "./model";
 import Canvas from "./Canvas";
 import Pipeline from "./Pipeline";
 import { FriendlySettings, StepSettings, TriggerSettings } from "./Settings";
@@ -115,7 +115,10 @@ export default function WorkflowEditorPage() {
   };
 
   function insertStep(index: number, step: EditorStep) {
-    edit((d) => ({ ...d, steps: [...d.steps.slice(0, index), step, ...d.steps.slice(index)] }));
+    edit((d) => {
+      const named = { ...step, name: uniqueName(step.name, d.steps) };
+      return { ...d, steps: [...d.steps.slice(0, index), named, ...d.steps.slice(index)] };
+    });
     setSelected(step.id);
     setInsertAt(null);
   }
