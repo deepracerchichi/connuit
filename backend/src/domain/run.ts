@@ -1,6 +1,7 @@
 import type { NodeId } from "./workflow.js";
 
-export type StepStatus = "pending" | "running" | "succeeded" | "failed";
+export type StepStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
+
 
 export interface Step {
   nodeId: NodeId;
@@ -10,6 +11,8 @@ export interface Step {
   startedAt: Date;
   finishedAt?: Date;    // absent while running / if it never finished
   attempt: number;      // always 1 for now; the retry milestone increments it
+  decision?: "yes" | "no"; // only on If steps: which way it went
+
 }
 
 

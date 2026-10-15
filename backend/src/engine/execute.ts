@@ -51,6 +51,10 @@ const body = node.config.body !== undefined
             const prompt = interpolate(node.config.prompt, previousOutput);
             return await callLlm(prompt, node.config.systemPrompt);
         }
+                case "condition":
+            // If steps don't produce data; the run loop calls decide() for them instead.
+            throw new Error("If steps are decided by the run loop, not executed here.");
+
 
         default: {
             const impossibleCase: never = node.config;

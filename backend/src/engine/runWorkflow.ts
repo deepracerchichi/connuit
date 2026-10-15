@@ -1,61 +1,75 @@
-import type { Workflow } from "../domain/workflow.js";
+import type { NodeId, Workflow } from "../domain/workflow.js";
 import type { Run, Step } from "../domain/run.js";
-import { findStartNodes, findNextNodes } from "./graph.js";
+import { findStartNodes, incomingEdges, topologicalOrder } from "./graph.js";
 import { executeNode } from "./execute.js";
+import { decide } from "./decide.js";
 
+export async function runWorkflow(
+  workflow: Workflow,
+  runId: string,
+  credentialValues: Map<string, string>,
+  input?: unknown,
+): Promise<Run> {
+  if (findStartNodes(workflow).length !== 1) {
+    throw new Error("A workflow needs exactly one first step (the one the trigger starts).");
+  }
+  const order = topologicalOrder(workflow); // throws on loops and broken connections
 
-export async function runWorkflow(workflow: Workflow, runId: string, credentialValues: Map<string, string>, input?: unknown): Promise<Run> {
-  const startNodes = findStartNodes(workflow);
-  if (startNodes.length !== 1) {
-    throw new Error("Only workflows with exactly one starting node are supported right now.");
+  const run: Run = { id: runId, workflowId: workflow.id, status: "running", steps: [] };
+
+  const outputs = new Map<NodeId, unknown>(); // what each step that ran passes on
+  const decisions = new Map<NodeId, "yes" | "no">(); // what each If step answered
+  const names = new Map(workflow.nodes.map((node) => [node.id, node.name]));
+
+  for (const node of order) {
+    const incoming = incomingEdges(workflow, node.id);
+    const isFirst = incoming.length === 0;
+
+    // A connection is live if its step ran and, when it leaves an If step, it matches the answer given.
+    const live = incoming.filter(
+      (edge) => outputs.has(edge.from) && (!edge.branch || edge.branch === decisions.get(edge.from)),
+    );
+
+    // Nothing reached this step: skip it. Skipped steps add no output, so everything after them skips too.
+    if (!isFirst && live.length === 0) {
+      const now = new Date();
+      run.steps.push({ nodeId: node.id, status: "skipped", startedAt: now, finishedAt: now, attempt: 1 });
+      continue;
+    }
+
+    // First step: the trigger's input. One parent: its output. Several (a merge): all of them, by step name.
+    const stepInput = isFirst
+      ? input
+      : live.length === 1
+        ? outputs.get(live[0].from)
+        : Object.fromEntries(live.map((edge) => [names.get(edge.from), outputs.get(edge.from)]));
+
+    const step: Step = { nodeId: node.id, status: "running", startedAt: new Date(), attempt: 1 };
+    run.steps.push(step);
+
+    try {
+      if (node.config.type === "condition") {
+        const decision = await decide(node.config.question, stepInput);
+        decisions.set(node.id, decision);
+        step.decision = decision;
+        step.output = { decision };
+        outputs.set(node.id, stepInput); // an If step passes its input straight through
+      } else {
+        const output = await executeNode(node, credentialValues, stepInput);
+        step.output = output;
+        outputs.set(node.id, output);
+      }
+      step.status = "succeeded";
+      step.finishedAt = new Date();
+    } catch (error) {
+      step.status = "failed";
+      step.finishedAt = new Date();
+      step.error = error instanceof Error ? error.message : String(error);
+      run.status = "failed";
+      return run;
+    }
   }
 
-  const run: Run = {
-    id: runId,              // ← was crypto.randomUUID(), now passed in
-    workflowId: workflow.id,
-    status: "running",
-    steps: [],
-  };
-  // ...rest unchanged
-
-
-    let currentNode = startNodes[0];
-    let previousOutput: unknown = input;
-    while (true) {
-        const step: Step = {
-            nodeId:currentNode.id,
-            status: "running",
-            startedAt: new Date(),
-            attempt: 1,
-        };
-        run.steps.push(step);
-
-        try {
-            const output = await executeNode(currentNode, credentialValues, previousOutput);
-            step.status = "succeeded";
-            step.finishedAt= new Date();
-            step.output = output;
-            previousOutput= output;
-        } catch (error) {
-            step.finishedAt =  new Date();
-            step.status = "failed";
-            step.error = error instanceof Error ? error.message : String(error);
-            run.status = "failed";
-            return run;
-        }
-
-        const nextNodes = findNextNodes(workflow, currentNode.id);
-
-        if (nextNodes.length === 0) {
-            run.status = "succeeded";
-            return run;
-        }
-
-        if (nextNodes.length > 1) {
-            throw new Error("Branching workflows are not supported yet.");
-            
-        }
-
-        currentNode = nextNodes[0];
-    }
+  run.status = "succeeded";
+  return run;
 }
