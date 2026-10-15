@@ -1,4 +1,4 @@
-
+import { callLlm } from "./llm.js";
 import type { WorkflowNode } from "../domain/workflow.js";
 import { interpolate, interpolateDeep } from "./interpolate.js";
 
@@ -47,29 +47,11 @@ const body = node.config.body !== undefined
 
          }
         
-        case "llm_call":{
-            const prompt = interpolate(node.config.prompt, previousOutput)
-             console.log("--- PROMPT SENT TO OLLAMA ---");
-             console.log(prompt);
-             console.log("-----------------------------");
-            const response = await fetch("http://localhost:11434/api/generate", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({
-                    model: "llama3.2",
-                    prompt: prompt,
-                    stream: false,
-                }),
-            });
-            if (!response.ok) {
-                throw new Error(`LLM call failed: ${response.status} ${response.statusText}`);
-                
-            }
-
-            const data = await response.json();
-            return data.response;
-
+        case "llm_call": {
+            const prompt = interpolate(node.config.prompt, previousOutput);
+            return await callLlm(prompt, node.config.systemPrompt);
         }
+
         default: {
             const impossibleCase: never = node.config;
             throw new Error(`Unknown node type: ${JSON.stringify(impossibleCase)}`);

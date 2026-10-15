@@ -10,6 +10,8 @@ const envSchema = z.object({
   REDIS_URL: z.url(),
   ENCRYPTION_KEY: z.string().length(64).regex(/^[0-9a-f]+$/i),
   FRONTEND_URL: z.url().default("http://localhost:5173"),
+  GEMINI_API_KEY: z.string().min(1),
+  LLM_MODEL: z.string().default("gemini-3.5-flash-lite"),
 });
 
 const parsed = envSchema.safeParse(process.env);

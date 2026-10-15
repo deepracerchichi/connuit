@@ -13,17 +13,26 @@ export const runWorker = new Worker<RunJobData>(
   {
     connection: redisConnection,
     concurrency: 5,
+    drainDelay: 60,           // idle: poll every 60s, not 5s (measured ~950K → ~86K Redis commands/month)
+    stalledInterval: 300_000, // look for crashed jobs every 5 min instead of 30s
   }
 );
 
 
 
 runWorker.on("failed", (job, error) => {
-  console.error(`Job ${job?.id} failed permanently after ${job?.attemptsMade} attempts:`, error.message);
+  if (!job) return;
 
-  if (job) {
-    RunModel.findByIdAndUpdate(job.data.runId, { status: "failed" }).catch((updateError) => {
-      console.error(`Failed to mark run ${job.data.runId} as failed:`, updateError);
-    });
+  // BullMQ fires "failed" on every failed attempt, not just the last one.
+  const maxAttempts = job.opts.attempts ?? 1;
+  if (job.attemptsMade < maxAttempts) {
+    console.warn(`Job ${job.id}: attempt ${job.attemptsMade}/${maxAttempts} failed, retrying: ${error.message}`);
+    return;
   }
+
+  console.error(`Job ${job.id} failed permanently after ${job.attemptsMade} attempts:`, error.message);
+  RunModel.findByIdAndUpdate(job.data.runId, { status: "failed" }).catch((updateError) => {
+    console.error(`Failed to mark run ${job.data.runId} as failed:`, updateError);
+  });
 });
+
