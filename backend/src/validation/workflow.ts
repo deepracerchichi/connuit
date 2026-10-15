@@ -29,7 +29,10 @@ const triggerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("webhook") }),
   z.object({
   type: z.literal("cron"),
-  schedule: z.string().refine((s) => cron.validate(s), { message: "Not a valid cron expression" }),
+  schedule: z
+  .string()
+  .refine((s) => cron.validate(s), { message: "Not a valid cron expression" })
+  .refine(atMostEveryFiveMinutes, { message: "Schedules can run at most every 5 minutes" }),
 }),
 
 ]);
@@ -43,6 +46,16 @@ export const createWorkflowSchema = z.object({
   edges: z.array(z.object({ from: z.string(), to: z.string() })),
 });
 
+// Cost and abuse guard: 5 fields only (node-cron's 6-field form adds seconds),
+// and nothing more often than every 5 minutes.
+function atMostEveryFiveMinutes(schedule: string) {
+  const fields = schedule.trim().split(/\s+/);
+  if (fields.length !== 5) return false;
+  const minute = fields[0];
+  if (minute === "*") return false;
+  const step = minute.match(/^\*\/(\d+)$/);
+  return step ? Number(step[1]) >= 5 : true;
+}
 
 
 
