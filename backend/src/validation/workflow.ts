@@ -1,5 +1,6 @@
 import { z } from "zod";
 import cron from "node-cron";
+import { findStartNodes, topologicalOrder } from "../engine/graph.js";
 
 
 const urlOrTemplate = z.string().refine(
@@ -42,14 +43,67 @@ const triggerSchema = z.discriminatedUnion("type", [
 
 ]);
 
-export const createWorkflowSchema = z.object({
-  name: z.string().min(1),
-  trigger: triggerSchema,
-  nodes: z
-    .array(z.object({ id: z.string().min(1), name: z.string().min(1), config: nodeConfigSchema }))
-    .min(1),
-  edges: z.array(z.object({ from: z.string(), to: z.string(), branch: z.enum(["yes", "no"]).optional() })),
-});
+export const createWorkflowSchema = z
+  .object({
+    name: z.string().min(1),
+    trigger: triggerSchema,
+    nodes: z
+      .array(z.object({ id: z.string().min(1), name: z.string().min(1), config: nodeConfigSchema }))
+      .min(1),
+    edges: z.array(z.object({ from: z.string(), to: z.string(), branch: z.enum(["yes", "no"]).optional() })),
+  })
+  // Shape checks pass one field at a time; these look at the workflow as a whole graph.
+  .superRefine((workflow, ctx) => {
+    const problem = graphProblem(workflow);
+    if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["edges"] });
+  });
+
+// Never trust the client: the editor already prevents these, but a direct API call might not.
+// Returns the first problem in plain words, or null if the graph is sound.
+function graphProblem(workflow: {
+  nodes: { id: string; name: string; config: { type: string } }[];
+  edges: { from: string; to: string; branch?: "yes" | "no" }[];
+}): string | null {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const node of workflow.nodes) {
+    if (ids.has(node.id)) return `Two steps share the id "${node.id}".`;
+    // {{steps.Name...}} finds steps by name, so names must be unique.
+    const name = node.name.trim().toLowerCase();
+    if (names.has(name)) return `Two steps are called "${node.name.trim()}". Give each step its own name.`;
+    ids.add(node.id);
+    names.add(name);
+  }
+
+  const seen = new Set<string>();
+  for (const edge of workflow.edges) {
+    const key = `${edge.from}->${edge.to}`;
+    if (seen.has(key)) return "The same two steps are connected twice.";
+    seen.add(key);
+  }
+
+  const isIf = new Map(workflow.nodes.map((node) => [node.id, node.config.type === "condition"]));
+  for (const edge of workflow.edges) {
+    if (edge.branch && isIf.get(edge.from) === false) {
+      return "Only If steps can have yes/no connections.";
+    }
+    if (!edge.branch && isIf.get(edge.from) === true) {
+      return "Every connection out of an If step must be marked yes or no.";
+    }
+  }
+
+  // Loops first: a graph that is all loop has no first step, and "has a loop" is the clearer message.
+  try {
+    topologicalOrder(workflow); // the engine's own check: loops and connections to missing steps
+  } catch (error) {
+    return error instanceof Error ? error.message : "The connections between steps aren't valid.";
+  }
+
+  if (findStartNodes(workflow).length !== 1) {
+    return "A workflow needs exactly one first step (the one the trigger starts), and every other step must be connected.";
+  }
+  return null;
+}
 
 // Cost and abuse guard: 5 fields only (node-cron's 6-field form adds seconds),
 // and nothing more often than every 5 minutes.
