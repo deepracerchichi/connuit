@@ -3,7 +3,8 @@ import type { WorkflowNode } from "../domain/workflow.js";
 import { interpolate, interpolateDeep } from "./interpolate.js";
 
 
-export async function executeNode(node: WorkflowNode, credentialValues: Map<string, string>, previousOutput?: unknown): Promise<unknown> {
+export async function executeNode(node: WorkflowNode, credentialValues: Map<string, string>, previousOutput: unknown, steps: Map<string, unknown>): Promise<unknown> {
+
     switch (node.config.type) {
         case "http_request":{
             const credentialValue = node.config.credentialId
@@ -11,17 +12,15 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
                 : undefined;
 
 
+            // Everything a {{placeholder}} in this step can refer to.
+            const ctx = { previousOutput, credential: credentialValue, steps };
 
-            const url = interpolate(node.config.url, previousOutput, credentialValue);
-const body = node.config.body !== undefined
-    ? interpolateDeep(node.config.body, previousOutput, credentialValue)
-    : undefined;
-
+            const url = interpolate(node.config.url, ctx);
+            const body = node.config.body !== undefined ? interpolateDeep(node.config.body, ctx) : undefined;
 
             const headers: Record<string, string> = {};
-
             for (const [key, value] of Object.entries(node.config.headers ?? {})) {
-                headers[key] = interpolate(value, previousOutput, credentialValue);
+                headers[key] = interpolate(value, ctx);
             }
 
             const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === "content-type");
@@ -48,9 +47,14 @@ const body = node.config.body !== undefined
          }
         
         case "llm_call": {
-            const prompt = interpolate(node.config.prompt, previousOutput);
+            const prompt = interpolate(node.config.prompt, { previousOutput, steps });
+
             return await callLlm(prompt, node.config.systemPrompt);
         }
+        case "condition":
+            // If steps don't produce data; the run loop calls decide() for them instead.
+            throw new Error("If steps are decided by the run loop, not executed here.");
+
 
         default: {
             const impossibleCase: never = node.config;

@@ -4,7 +4,7 @@ const stepSchema = new mongoose.Schema({
     nodeId: { type: String, required: true},
     status: {
         type: String,
-        enum: ["pending", "running", "succeeded", "failed"],
+        enum: ["pending", "skipped", "running", "succeeded", "failed"],
         required: true,
     },
     output: {type: mongoose.Schema.Types.Mixed},
@@ -12,6 +12,7 @@ const stepSchema = new mongoose.Schema({
     startedAt: {type: Date, required: true},
     finishedAt: { type: Date },
     attempt: {type: Number, required: true, default: 1},
+    decision: { type: String, enum: ["yes", "no"] },
 
 },
 {_id: false}

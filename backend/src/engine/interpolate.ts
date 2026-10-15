@@ -1,40 +1,75 @@
-export function interpolate(template: string, previousOutput: unknown, credentialValue?:string): string {
-  let result = template;
+// Fills {{placeholders}} in text that steps send (URLs, headers, bodies, prompts).
+//
+//   {{previousOutput}}                  the previous step's whole output
+//   {{previousOutput.customer.email}}   a field inside it (also [0] for list items)
+//   {{steps.Get news.headline}}         any earlier step that ran, by name, and fields inside it
+//   {{credential}}                      this step's decrypted credential
+//
+// Anything else inside {{ }} is left as it is, so other services' own templates don't break.
 
-  if (result.includes("{{previousOutput}}")) {
-    const valueAsText = typeof previousOutput === "string" ? previousOutput : JSON.stringify(previousOutput);
-    result = result.replaceAll("{{previousOutput}}", valueAsText);
-  }
-
-  if (result.includes("{{credential}}")) {
-    if (!credentialValue) {
-      throw new Error("This node references {{credential}} but no credential was resolved");
-    }
-    result = result.replaceAll("{{credential}}", credentialValue);
-  }
-
-  return result;
+export interface TemplateContext {
+  previousOutput: unknown;
+  credential?: string;
+  steps: Map<string, unknown>; // step name -> output, for steps that ran before this one
 }
 
-// Walks any JSON-like value and fills placeholders in every string inside it.
-// Done before JSON.stringify so quotes/newlines in the output get escaped properly.
-export function interpolateDeep(value: unknown, previousOutput: unknown, credentialValue?: string): unknown {
-  if (typeof value === "string") {
-    return interpolate(value, previousOutput, credentialValue);
+const PLACEHOLDER = /\{\{\s*([^{}]+?)\s*\}\}/g;
+const LEAVE_ALONE = Symbol("leave alone");
+
+export function interpolate(template: string, ctx: TemplateContext): string {
+  return template.replace(PLACEHOLDER, (match, expression: string) => {
+    const value = resolve(expression, ctx);
+    if (value === LEAVE_ALONE) return match;
+    if (value === undefined) return "";
+    return typeof value === "string" ? value : JSON.stringify(value);
+  });
+}
+
+function resolve(expression: string, ctx: TemplateContext): unknown {
+  if (expression === "credential") {
+    if (!ctx.credential) throw new Error("This step uses {{credential}} but has no credential selected.");
+    return ctx.credential;
   }
 
-  if (Array.isArray(value)) {
-    return value.map((item) => interpolateDeep(item, previousOutput, credentialValue));
+  if (expression === "previousOutput" || /^previousOutput[.[]/.test(expression)) {
+    return getPath(ctx.previousOutput, expression.slice("previousOutput".length), "previousOutput");
   }
 
+  if (expression.startsWith("steps.")) {
+    const rest = expression.slice("steps.".length);
+    // Names can contain spaces and dots, so match the known names, longest first.
+    const name = [...ctx.steps.keys()]
+      .sort((a, b) => b.length - a.length)
+      .find((n) => rest === n || rest.startsWith(n + ".") || rest.startsWith(n + "["));
+    if (!name) throw new Error(`No step called "${rest}" ran before this one.`);
+    return getPath(ctx.steps.get(name), rest.slice(name.length), `steps.${name}`);
+  }
+
+  return LEAVE_ALONE;
+}
+
+// Walks a path like ".customer.email" or ".items[0].title" into a value.
+function getPath(value: unknown, path: string, label: string): unknown {
+  const parts = [...path.matchAll(/\.([^.[\]]+)|\[(\d+)\]/g)].map((m) => m[1] ?? Number(m[2]));
+  let current = value;
+  let walked = label;
+  for (const part of parts) {
+    if (current === null || typeof current !== "object" || !(part in current)) {
+      throw new Error(`${walked} has no ${typeof part === "number" ? `item [${part}]` : `field "${part}"`}.`);
+    }
+    current = (current as Record<string | number, unknown>)[part];
+    walked += typeof part === "number" ? `[${part}]` : `.${part}`;
+  }
+  return current;
+}
+
+// Same, for every string inside a JSON-like value (request bodies). Done before
+// JSON.stringify so quotes and newlines in the filled-in text get escaped properly.
+export function interpolateDeep(value: unknown, ctx: TemplateContext): unknown {
+  if (typeof value === "string") return interpolate(value, ctx);
+  if (Array.isArray(value)) return value.map((item) => interpolateDeep(item, ctx));
   if (value !== null && typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, inner] of Object.entries(value)) {
-      result[key] = interpolateDeep(inner, previousOutput, credentialValue);
-    }
-    return result;
+    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, interpolateDeep(inner, ctx)]));
   }
-
-  return value; // numbers, booleans, null: nothing to fill in
+  return value;
 }
-

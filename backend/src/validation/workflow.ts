@@ -3,8 +3,8 @@ import cron from "node-cron";
 
 
 const urlOrTemplate = z.string().refine(
-  (val) => /\{\{(previousOutput|credential)\}\}/.test(val) || z.string().url().safeParse(val).success,
-  { message: "Must be a valid URL, or contain a {{previousOutput}} / {{credential}} placeholder" }
+  (val) => /\{\{\s*(previousOutput|credential|steps\.)/.test(val) || z.url().safeParse(val).success,
+  { message: "Must be a valid URL, or contain a {{previousOutput}}, {{steps.…}} or {{credential}} placeholder" }
 );
 
 
@@ -22,6 +22,11 @@ const nodeConfigSchema = z.discriminatedUnion("type", [
     prompt: z.string().min(1),
     systemPrompt: z.string().optional(),
   }),
+  z.object({
+  type: z.literal("condition"),
+  question: z.string().min(1),
+}),
+
 ]);
 
 const triggerSchema = z.discriminatedUnion("type", [
@@ -43,7 +48,7 @@ export const createWorkflowSchema = z.object({
   nodes: z
     .array(z.object({ id: z.string().min(1), name: z.string().min(1), config: nodeConfigSchema }))
     .min(1),
-  edges: z.array(z.object({ from: z.string(), to: z.string() })),
+  edges: z.array(z.object({ from: z.string(), to: z.string(), branch: z.enum(["yes", "no"]).optional() })),
 });
 
 // Cost and abuse guard: 5 fields only (node-cron's 6-field form adds seconds),
