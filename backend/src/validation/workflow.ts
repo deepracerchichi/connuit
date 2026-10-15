@@ -3,8 +3,8 @@ import cron from "node-cron";
 
 
 const urlOrTemplate = z.string().refine(
-  (val) => /\{\{(previousOutput|credential)\}\}/.test(val) || z.string().url().safeParse(val).success,
-  { message: "Must be a valid URL, or contain a {{previousOutput}} / {{credential}} placeholder" }
+  (val) => /\{\{\s*(previousOutput|credential|steps\.)/.test(val) || z.url().safeParse(val).success,
+  { message: "Must be a valid URL, or contain a {{previousOutput}}, {{steps.…}} or {{credential}} placeholder" }
 );
 
 

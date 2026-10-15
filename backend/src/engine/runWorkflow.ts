@@ -18,6 +18,7 @@ export async function runWorkflow(
   const run: Run = { id: runId, workflowId: workflow.id, status: "running", steps: [] };
 
   const outputs = new Map<NodeId, unknown>(); // what each step that ran passes on
+  const outputsByName = new Map<string, unknown>(); // for {{steps.Name...}}
   const decisions = new Map<NodeId, "yes" | "no">(); // what each If step answered
   const names = new Map(workflow.nodes.map((node) => [node.id, node.name]));
 
@@ -54,10 +55,12 @@ export async function runWorkflow(
         step.decision = decision;
         step.output = { decision };
         outputs.set(node.id, stepInput); // an If step passes its input straight through
+        outputsByName.set(node.name, stepInput);
       } else {
-        const output = await executeNode(node, credentialValues, stepInput);
+        const output = await executeNode(node, credentialValues, stepInput, outputsByName);
         step.output = output;
         outputs.set(node.id, output);
+        outputsByName.set(node.name, output);
       }
       step.status = "succeeded";
       step.finishedAt = new Date();
