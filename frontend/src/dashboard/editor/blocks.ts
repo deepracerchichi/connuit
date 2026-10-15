@@ -221,6 +221,7 @@ export const decide: Block = {
 };
 
 // Order matters: specific blocks first, the catch-all last.
+// (Branches aren't a block: you add one from a step's free outlet.)
 export const BLOCKS: Block[] = [hackerNews, weather, fetchUrl, askAi, decide, slack, discord, custom];
 
 export function detectBlock(step: EditorStep): { block: Block; params: Params } {

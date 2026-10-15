@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { ChevronDown, ChevronUp, CircleAlert, Clock, Play, Plus, Trash2, Webhook, X } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleAlert, Clock, GitBranchPlus, Play, Plus, Trash2, Webhook, X } from "lucide-react";
 import type { Branch, Run, RunStep } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { describeCron, formatDuration, StatusIcon } from "../ui";
 import { BLOCKS, detectBlock } from "./blocks";
-import { pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Problems, type Slot } from "./model";
+import { branchSlot, canBranch, MAX_OUTLETS, movable, outletCount, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Problems, type Slot } from "./model";
 import { BRANCH_LABEL, deliveredResults, kindLabel, resultText, stepNumbers } from "./view";
 
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -118,23 +118,38 @@ function StepList({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
   return list.map((step, i) => {
     const slot = { list: listKey, index: i };
     const result = results.get(step.id);
+    const picker = sameSlot(insertAt, slot) && <StepPicker onPick={(s) => onInsert(slot, s)} onClose={() => onOpenInsert(null)} />;
+    if (step.kind === "split") {
+      // A step's branches: no ⊕ before them, since a step put there would take the branches over.
+      return (
+        <Fragment key={step.id}>
+          <Pipe short />
+          <SplitPaths split={step} ctx={ctx} />
+        </Fragment>
+      );
+    }
+    const branch = branchSlot(step.id);
+    const { back, forward } = movable(list, i);
     return (
       <Fragment key={step.id}>
         <Pipe into={step.id} open={sameSlot(insertAt, slot)} onAdd={() => onOpenInsert(sameSlot(insertAt, slot) ? null : slot)} />
-        {sameSlot(insertAt, slot) && <StepPicker onPick={(s) => onInsert(slot, s)} onClose={() => onOpenInsert(null)} />}
+        {picker}
         <StepCard
           step={step}
           number={numbers.get(step.id) ?? i + 1}
-          first={i === 0}
-          last={i === list.length - 1}
+          first={!back}
+          last={!forward}
           selected={selected === step.id}
           error={problems?.steps[step.id]}
           result={result}
           waiting={!!run && !result}
+          outlets={canBranch(list, i) ? outletCount(list, i) : null}
+          onBranch={() => onOpenInsert(sameSlot(insertAt, branch) ? null : branch)}
           onSelect={() => onSelect(step.id)}
           onMove={(direction) => onMove(step.id, direction)}
           onRemove={() => onRemove(step.id)}
         />
+        {sameSlot(insertAt, branch) && <StepPicker title="Add a branch: another step that gets this one's output" onPick={(s) => onInsert(branch, s)} onClose={() => onOpenInsert(null)} />}
         {selected === step.id && <div className="mt-3 lg:hidden">{renderSettings(step.id)}</div>}
         {step.kind === "condition" && <Paths step={step} ctx={ctx} />}
       </Fragment>
@@ -149,28 +164,59 @@ function Paths({ step, ctx }: { step: EditorStep; ctx: ListContext }) {
     <>
       <Pipe short />
       <div className="flex flex-col gap-3">
-        {(["yes", "no"] as const).map((branch) => {
-          const list = step[branch];
-          const key = pathKey(step.id, branch);
-          return (
-            <div
-              key={branch}
-              className={cn(
-                "rounded-2xl border border-dashed p-3 transition-opacity",
-                branch === "yes" ? "border-ink/30 bg-accent/15" : "border-ink/20 bg-white/40",
-                decision && decision !== branch && "opacity-45",
-              )}
-            >
-              <BranchTag branch={branch} taken={decision === branch} />
-              <StepList list={list} listKey={key} ctx={ctx} />
-              {list.length > 0 && <Pipe short />}
-              <AddAtEnd slot={{ list: key, index: list.length }} ctx={ctx} label={list.length === 0 ? `Add a step for “${BRANCH_LABEL[branch]}”` : "Add step"} small />
-            </div>
-          );
-        })}
+        {(["yes", "no"] as const).map((branch) => (
+          <PathBox
+            key={branch}
+            list={step[branch]}
+            listKey={pathKey(step.id, branch)}
+            ctx={ctx}
+            tag={<BranchTag branch={branch} taken={decision === branch} />}
+            emptyLabel={`Add a step for “${BRANCH_LABEL[branch]}”`}
+            className={cn(branch === "yes" ? "border-ink/30 bg-accent/15" : "border-ink/20 bg-white/40", decision && decision !== branch && "opacity-45")}
+          />
+        ))}
       </div>
       <p className="mt-2 text-center text-xs text-ink/45">Both paths carry on below</p>
     </>
+  );
+}
+
+// A step's branches: each gets that step's output, and they all run.
+function SplitPaths({ split, ctx }: { split: EditorStep; ctx: ListContext }) {
+  const error = ctx.problems?.steps[split.id];
+  return (
+    <>
+      <div className="flex flex-col gap-3">
+        {split.lanes.map((list, i) => (
+          <PathBox
+            key={i}
+            list={list}
+            listKey={pathKey(split.id, i)}
+            ctx={ctx}
+            tag={<span className="inline-flex rounded-full bg-mint px-2.5 py-1 font-mono text-[10px] uppercase leading-none ring-1 ring-ink/15">Branch {i + 1}</span>}
+            emptyLabel={`Add a step to branch ${i + 1}`}
+            className="border-ink/25 bg-mint/20"
+          />
+        ))}
+      </div>
+      {error && (
+        <p className="mt-2 flex items-center justify-center gap-2 text-sm text-red-700">
+          <CircleAlert className="h-4 w-4 shrink-0" strokeWidth={2} /> {error}
+        </p>
+      )}
+      <p className="mt-2 text-center text-xs text-ink/45">Every branch runs. A step added below gets all their results together.</p>
+    </>
+  );
+}
+
+function PathBox({ list, listKey, ctx, tag, emptyLabel, className }: { list: EditorStep[]; listKey: string; ctx: ListContext; tag: ReactNode; emptyLabel: string; className: string }) {
+  return (
+    <div className={cn("rounded-2xl border border-dashed p-3 transition-opacity", className)}>
+      {tag}
+      <StepList list={list} listKey={listKey} ctx={ctx} />
+      {list.length > 0 && <Pipe short />}
+      <AddAtEnd slot={{ list: listKey, index: list.length }} ctx={ctx} label={list.length === 0 ? emptyLabel : "Add step"} small />
+    </div>
   );
 }
 
@@ -210,9 +256,18 @@ function AddAtEnd({ slot, ctx, label, small = false }: { slot: Slot; ctx: ListCo
 
 function Pipe({ into, open = false, short = false, onAdd }: { into?: string; open?: boolean; short?: boolean; onAdd?: () => void }) {
   return (
-    <div data-into={into} className={cn("relative mx-auto w-1.5 shrink-0 rounded-full bg-ink", short ? "h-8" : "h-16")}>
+    <div data-into={into} className={cn("pipe-y relative mx-auto w-3 shrink-0", short ? "h-8" : "h-16")}>
+      {/* Chevrons pointing the way the data goes */}
+      <span className="pipe-flow-y pointer-events-none absolute inset-0" />
+      {/* Couplings where the pipe meets what's above and below (short stubs would look like I-beams) */}
+      {!short && (
+        <>
+          <span className="pipe-x pointer-events-none absolute -left-1 top-0 h-1.5 w-5 rounded-xs" />
+          <span className="pipe-x pointer-events-none absolute -left-1 bottom-0 h-1.5 w-5 rounded-xs" />
+        </>
+      )}
       {/* The pulse: no Tailwind transforms on it, GSAP animates `top` only */}
-      <span className="js-pulse absolute -left-[3px] top-0 h-3 w-3 rounded-full bg-accent opacity-0 shadow-[0_0_14px_5px_rgba(190,242,100,0.75)]" />
+      <span className="js-pulse absolute left-0 top-0 h-3 w-3 rounded-full bg-accent opacity-0 shadow-[0_0_14px_5px_rgba(190,242,100,0.75)]" />
       {onAdd && (
         <button
           type="button"
@@ -281,6 +336,8 @@ function StepCard({
   error,
   result,
   waiting,
+  outlets,
+  onBranch,
   onSelect,
   onMove,
   onRemove,
@@ -293,6 +350,8 @@ function StepCard({
   error?: string;
   result?: RunStep;
   waiting: boolean;
+  outlets: number | null; // how many steps take this one's output, when it can take another
+  onBranch: () => void;
   onSelect: () => void;
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
@@ -342,6 +401,11 @@ function StepCard({
             <IconButton label="Move down" disabled={last} onClick={() => onMove(1)}>
               <ChevronDown className="h-4 w-4" strokeWidth={2} />
             </IconButton>
+            {outlets !== null && (
+              <IconButton label={`Add a branch (${outlets} of ${MAX_OUTLETS} used)`} onClick={onBranch}>
+                <GitBranchPlus className="h-4 w-4" strokeWidth={1.75} />
+              </IconButton>
+            )}
             <IconButton label="Remove step" danger onClick={onRemove}>
               <Trash2 className="h-4 w-4" strokeWidth={1.75} />
             </IconButton>
@@ -402,7 +466,7 @@ export function PopIn({ className, children }: { className: string; children: Re
 
 /* ---------- The ⊕ menu ---------- */
 
-export function StepPicker({ onPick, onClose }: { onPick: (step: EditorStep) => void; onClose: () => void }) {
+export function StepPicker({ title = "Add a step", onPick, onClose }: { title?: string; onPick: (step: EditorStep) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useGSAP(() => {
@@ -420,7 +484,7 @@ export function StepPicker({ onPick, onClose }: { onPick: (step: EditorStep) => 
   return (
     <div ref={ref} className="my-2 rounded-2xl border border-ink/10 bg-white p-3 shadow-[0_20px_50px_-20px_rgba(14,66,41,0.35)]">
       <div className="flex items-center justify-between px-2 pb-2 pt-1">
-        <p className="font-mono text-xs uppercase text-ink/55">Add a step</p>
+        <p className="font-mono text-xs uppercase text-ink/55">{title}</p>
         <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-ink/45 hover:bg-ink/5 hover:text-ink">
           <X className="h-4 w-4" strokeWidth={2} />
         </button>

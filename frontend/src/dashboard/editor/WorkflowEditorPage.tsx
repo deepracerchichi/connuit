@@ -17,8 +17,15 @@ import {
   emptyDraft,
   findStep,
   fromWorkflow,
+  addBranch,
+  branchTarget,
+  listAt,
   locate,
+  moveWithBranches,
+  tidyBranches,
+  paths,
   ROOT,
+  runnable,
   toPayload,
   uniqueName,
   validate,
@@ -138,28 +145,26 @@ export default function WorkflowEditorPage() {
   };
 
   // Steps live in lists (the main line, or an If's Yes/No path); a slot says which list and where.
+  // A "branch" slot means: add this step as a new outlet of that step instead.
   function insertStep(slot: Slot, step: EditorStep) {
+    const from = branchTarget(slot);
     edit((d) => {
       const named = { ...step, name: uniqueName(step.name, d.steps) };
+      if (from) {
+        const at = locate(d.steps, from.stepId);
+        return at ? { ...d, steps: changeList(d.steps, at.list, (list) => addBranch(list, at.index, named, from.side)) } : d;
+      }
       return { ...d, steps: changeList(d.steps, slot.list, (list) => [...list.slice(0, slot.index), named, ...list.slice(slot.index)]) };
     });
     setSelected(step.id);
     setInsertAt(null);
   }
 
-  // Moves a step along its own list (an If takes its paths with it).
+  // Moves a step along its own list. An If takes its paths with it, and a step its branches.
   function moveStep(stepId: string, direction: -1 | 1) {
     edit((d) => {
       const at = locate(d.steps, stepId);
-      if (!at) return d;
-      return {
-        ...d,
-        steps: changeList(d.steps, at.list, (list) => {
-          const next = [...list];
-          [next[at.index], next[at.index + direction]] = [next[at.index + direction], next[at.index]];
-          return next;
-        }),
-      };
+      return at ? { ...d, steps: changeList(d.steps, at.list, (list) => moveWithBranches(list, stepId, direction)) } : d;
     });
   }
 
@@ -167,11 +172,19 @@ export default function WorkflowEditorPage() {
     const step = findStep(draft!.steps, stepId);
     const at = locate(draft!.steps, stepId);
     if (!step || !at) return;
-    // Removing an If removes everything on its paths too, so check first.
-    const inside = allSteps([...step.yes, ...step.no]);
-    if (inside.length > 0 && !window.confirm(`Remove “${step.name.trim() || "this If"}” and the ${inside.length} ${inside.length === 1 ? "step" : "steps"} on its paths?`)) return;
-    if (selected && allSteps([step]).some((s) => s.id === selected)) setSelected(null);
-    edit((d) => ({ ...d, steps: changeList(d.steps, at.list, (list) => list.filter((s) => s.id !== stepId)) }));
+    // A step's branches hang off it, so they go with it; so do an If's paths. Check first.
+    const list = listAt(draft!.steps, at.list);
+    const branches = list[at.index + 1]?.kind === "split" ? [list[at.index + 1]] : [];
+    const going = [step, ...branches];
+    const inside = runnable(going.flatMap((item) => paths(item).flatMap((path) => path.list)));
+    const what = step.kind === "condition" ? "its paths" : "its branches";
+    if (inside.length > 0 && !window.confirm(`Remove “${step.name.trim() || "this step"}” and the ${inside.length} ${inside.length === 1 ? "step" : "steps"} on ${what}?`)) return;
+    if (selected && allSteps(going).some((s) => s.id === selected)) setSelected(null);
+    const goingIds = new Set(going.map((item) => item.id));
+    edit((d) => {
+      const without = changeList(d.steps, at.list, (l) => l.filter((s) => !goingIds.has(s.id)));
+      return { ...d, steps: tidyBranches(without, at.list) }; // an emptied branch disappears
+    });
   }
 
   /* ---------- Saving, testing, deleting ---------- */
@@ -181,7 +194,7 @@ export default function WorkflowEditorPage() {
     const found = validate(draft);
     setProblems(found);
     if (found) {
-      const firstBadStep = allSteps(draft.steps).find((s) => found.steps[s.id]);
+      const firstBadStep = runnable(draft.steps).find((s) => found.steps[s.id]); // a split's problem shows on the canvas itself
       if (firstBadStep) setSelected(firstBadStep.id);
       return null;
     }
@@ -226,7 +239,7 @@ export default function WorkflowEditorPage() {
 
   const testing = test.phase === "queued" || test.phase === "running" || test.phase === "retrying";
   const webhookUrl = workflow?.webhookToken && draft.trigger.type === "webhook" ? `${API_URL}/webhooks/${workflow.webhookToken}` : null;
-  const everyStep = allSteps(draft.steps);
+  const everyStep = runnable(draft.steps); // splits have no settings, so they never open the inspector
   const selectedStep = everyStep.find((s) => s.id === selected);
 
   const renderSettings = (key: string) => {

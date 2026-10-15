@@ -4,7 +4,7 @@ import type { Branch, RunStep } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { formatDuration, StatusIcon } from "../ui";
 import { detectBlock } from "./blocks";
-import { allSteps, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Slot } from "./model";
+import { allSteps, branchSlot, branchTarget, canBranch, MAX_OUTLETS, movable, outletCount, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Side, type Slot } from "./model";
 import { IconButton, PopIn, selectOnKey, StepPicker, triggerSummary, usePulse, type PipeProps } from "./Pipeline";
 import { BRANCH_LABEL, deliveredResults, kindLabel, resultText, stepNumbers } from "./view";
 
@@ -259,7 +259,11 @@ export default function Canvas(props: CanvasProps) {
           className="absolute bottom-6 z-20 w-[min(36rem,calc(100%-2rem))] -translate-x-1/2"
           style={{ left: `calc((100% - ${coveredRight}px) / 2)` }}
         >
-          <StepPicker onPick={(step) => onInsert(insertAt, step)} onClose={() => onOpenInsert(null)} />
+          <StepPicker
+            title={branchTarget(insertAt) ? "Add a branch: another step that gets this one's output" : undefined}
+            onPick={(step) => onInsert(insertAt, step)}
+            onClose={() => onOpenInsert(null)}
+          />
         </div>
       )}
 
@@ -321,14 +325,22 @@ function Sequence({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
   return list.map((step, i) => {
     const slot = { list: listKey, index: i };
     const result = results.get(step.id);
+    if (step.kind === "split") {
+      return (
+        <Fragment key={step.id}>
+          <Pipe short />{/* no ⊕ here: a step put between would take the branches over */}
+          <SplitFork split={step} ctx={ctx} />
+        </Fragment>
+      );
+    }
     return (
       <Fragment key={step.id}>
         <Pipe into={step.id} open={sameSlot(insertAt, slot)} onAdd={() => onOpenInsert(sameSlot(insertAt, slot) ? null : slot)} />
         <StepNode
           step={step}
           number={numbers.get(step.id) ?? i + 1}
-          first={i === 0}
-          last={i === list.length - 1}
+          first={!movable(list, i).back}
+          last={!movable(list, i).forward}
           selected={selected === step.id}
           error={problems?.steps[step.id]}
           result={result}
@@ -336,6 +348,9 @@ function Sequence({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
           onSelect={() => onSelect(step.id)}
           onMove={(direction) => onMove(step.id, direction)}
           onRemove={() => onRemove(step.id)}
+          outlets={canBranch(list, i) ? outletCount(list, i) : null}
+          openSide={(["top", "bottom"] as const).find((side) => sameSlot(insertAt, branchSlot(step.id, side))) ?? null}
+          onBranch={(side) => onOpenInsert(sameSlot(insertAt, branchSlot(step.id, side)) ? null : branchSlot(step.id, side))}
         />
         {step.kind === "condition" && (
           <>
@@ -348,48 +363,123 @@ function Sequence({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
   });
 }
 
-// The two lanes, stacked. Each lane draws its own quarter of the bends with rounded borders,
-// so the left bends meet in one line the incoming pipe hits, and the right ones in one line
-// the outgoing pipe leaves from, whatever height each lane grows to.
+// An If's two lanes: Yes on top, No below. After a test run, the path not taken fades.
 function Fork({ step, ctx }: { step: EditorStep; ctx: LaneContext }) {
+  const decision = ctx.results.get(step.id)?.decision;
   return (
     <div className="flex shrink-0 flex-col">
-      {(["yes", "no"] as const).map((branch) => (
-        <Lane key={branch} step={step} branch={branch} ctx={ctx} />
+      {(["yes", "no"] as const).map((branch: Branch, i) => (
+        <Lane
+          key={branch}
+          position={i === 0 ? "first" : "last"}
+          list={step[branch]}
+          listKey={pathKey(step.id, branch)}
+          ctx={ctx}
+          tag={<LaneTag tone={branch === "yes" ? "lime" : "white"} strong={decision === branch}>If {BRANCH_LABEL[branch].toLowerCase()}</LaneTag>}
+          emptyLabel={`Add a step for “${BRANCH_LABEL[branch]}”`}
+          faded={!!decision && decision !== branch}
+        />
       ))}
     </div>
   );
 }
 
-function Lane({ step, branch, ctx }: { step: EditorStep; branch: Branch; ctx: LaneContext }) {
+// A step's branches: plain pipes out of it, one per lane. Each gets that step's output; a step
+// added after them gets all their results together. (Remove a branch's last step and it goes.)
+function SplitFork({ split, ctx }: { split: EditorStep; ctx: LaneContext }) {
+  const error = ctx.problems?.steps[split.id];
+  return (
+    <div className="relative flex shrink-0 flex-col">
+      {split.lanes.map((list, i) => (
+        <Lane
+          key={i}
+          position={i === 0 ? "first" : i === split.lanes.length - 1 ? "last" : "middle"}
+          list={list}
+          listKey={pathKey(split.id, i)}
+          ctx={ctx}
+          emptyLabel={`Add a step to branch ${i + 1}`}
+        />
+      ))}
+      {/* Hangs below the fork, so it doesn't change its height (the pipes meet at its middle) */}
+      {error && (
+        <p className="absolute left-8 top-full flex w-72 items-start gap-1.5 text-xs leading-snug text-red-700">
+          <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} /> {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LaneTag({ tone, strong = false, children }: { tone: "lime" | "white"; strong?: boolean; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        "relative z-10 inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-mono text-[10px] uppercase leading-none ring-1 ring-ink/15",
+        tone === "lime" ? "bg-accent" : "bg-white",
+        strong && "ring-2 ring-ink",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+// One lane of a fork. Each lane draws its own share of the bends (rounded borders), so the
+// left ones meet in one line the incoming pipe hits and the right ones in one line the
+// outgoing pipe leaves from, whatever height each lane grows to.
+function Lane({
+  position,
+  list,
+  listKey,
+  ctx,
+  tag,
+  emptyLabel,
+  faded = false,
+}: {
+  position: "first" | "middle" | "last";
+  list: EditorStep[];
+  listKey: string;
+  ctx: LaneContext;
+  tag?: ReactNode; // If lanes are labelled Yes/No; a step's branches are just pipes
+  emptyLabel: string;
+  faded?: boolean;
+}) {
   const { insertAt, onOpenInsert } = ctx;
-  const list = step[branch];
-  const key = pathKey(step.id, branch);
-  const endSlot: Slot = { list: key, index: list.length };
-  const decision = ctx.results.get(step.id)?.decision;
-  const top = branch === "yes";
-  // 3px = half the 6px pipe, so the bend's border lines up with the middle of the lane's pipe.
-  const bend = cn("pointer-events-none absolute w-8 border-ink", top ? "bottom-0 top-[calc(50%-3px)] border-t-[6px]" : "bottom-[calc(50%-3px)] top-0 border-b-[6px]");
+  const endSlot: Slot = { list: listKey, index: list.length };
+  // The bends: a 12px tube drawn with borders (6px = half of it, so it lines up with the middle
+  // of the lane's pipe), and a 2px shine down its centre (5px in) to match the straight pipes.
+  const tube = cn(
+    "pointer-events-none absolute w-8 border-ink",
+    position === "first" && "-bottom-px top-[calc(50%-6px)] border-t-12", // -px: overlap the next lane, so no seam shows
+    position === "last" && "bottom-[calc(50%-6px)] top-0 border-b-12",
+    position === "middle" && "-bottom-px top-0",
+  );
+  const shine = cn(
+    "pointer-events-none absolute w-[calc(2rem-5px)] border-[#2f8058]",
+    position === "first" && "-bottom-px top-[calc(50%-1px)] border-t-2",
+    position === "last" && "bottom-[calc(50%-1px)] top-0 border-b-2",
+    position === "middle" && "-bottom-px top-0",
+  );
 
   return (
-    <div className={cn("relative flex items-center px-8 py-12 transition-opacity", decision && decision !== branch && "opacity-40")}>
-      <span className={cn(bend, "left-0 border-l-[6px]", top ? "rounded-tl-2xl" : "rounded-bl-2xl")} />
-      <span className={cn(bend, "right-0 border-r-[6px]", top ? "rounded-tr-2xl" : "rounded-br-2xl")} />
+    <div className={cn("relative flex items-center px-8 py-12 transition-opacity", faded && "opacity-40")}>
+      <span className={cn(tube, "left-0 border-l-12", position === "first" && "rounded-tl-2xl", position === "last" && "rounded-bl-2xl")} />
+      <span className={cn(shine, "left-[5px] border-l-2", position === "first" && "rounded-tl-[11px]", position === "last" && "rounded-bl-[11px]")} />
+      <span className={cn(tube, "right-0 border-r-12", position === "first" && "rounded-tr-2xl", position === "last" && "rounded-br-2xl")} />
+      <span className={cn(shine, "right-[5px] border-r-2", position === "first" && "rounded-tr-[11px]", position === "last" && "rounded-br-[11px]")} />
+      {position === "middle" && (
+        <>
+          <span className="pipe-x pointer-events-none absolute left-3 top-[calc(50%-6px)] h-3 w-5" />
+          <span className="pipe-x pointer-events-none absolute right-3 top-[calc(50%-6px)] h-3 w-5" />
+        </>
+      )}
 
-      <span
-        className={cn(
-          "relative z-10 shrink-0 rounded-full px-2.5 py-1 font-mono text-[10px] uppercase leading-none ring-1 ring-ink/15",
-          top ? "bg-accent" : "bg-white",
-          decision === branch && "ring-2 ring-ink",
-        )}
-      >
-        If {BRANCH_LABEL[branch].toLowerCase()}
-      </span>
+      {tag}
 
-      <Sequence list={list} listKey={key} ctx={ctx} />
+      <Sequence list={list} listKey={listKey} ctx={ctx} />
 
-      {/* The rest of the lane, stretching so both lanes end together; its ⊕ adds to the end of this path */}
-      <Pipe grow open={sameSlot(insertAt, endSlot)} onAdd={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)} label={list.length === 0 ? `Add a step for “${BRANCH_LABEL[branch]}”` : undefined} />
+      {/* The rest of the lane, stretching so all lanes end together; its ⊕ adds to the end of this path */}
+      <Pipe grow open={sameSlot(insertAt, endSlot)} onAdd={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)} label={list.length === 0 ? emptyLabel : undefined} />
     </div>
   );
 }
@@ -412,9 +502,14 @@ function Pipe({
   onAdd?: () => void;
 }) {
   return (
-    <div data-into={into} className={cn("relative h-1.5 shrink-0 rounded-full bg-ink", short ? "w-10" : "w-24", grow && "min-w-24 flex-1")}>
+    <div data-into={into} className={cn("pipe-x relative h-3 shrink-0", short ? "w-10" : "w-24", grow && "min-w-24 flex-1")}>
+      {/* Chevrons pointing the way the data goes */}
+      <span className="pipe-flow-x pointer-events-none absolute inset-0" />
+      {/* Couplings where the pipe meets what's on either side */}
+      <span className="pipe-y pointer-events-none absolute -top-1 left-0 h-5 w-1.5 rounded-xs" />
+      <span className="pipe-y pointer-events-none absolute -top-1 right-0 h-5 w-1.5 rounded-xs" />
       {/* The pulse: GSAP animates `left` only, so no Tailwind transforms on it */}
-      <span className="js-pulse absolute -top-0.75 left-0 h-3 w-3 rounded-full bg-accent opacity-0 shadow-[0_0_14px_5px_rgba(190,242,100,0.75)]" />
+      <span className="js-pulse absolute top-0 left-0 h-3 w-3 rounded-full bg-accent opacity-0 shadow-[0_0_14px_5px_rgba(190,242,100,0.75)]" />
       {onAdd && (
         <button
           type="button"
@@ -469,6 +564,9 @@ function StepNode({
   error,
   result,
   waiting,
+  outlets,
+  openSide,
+  onBranch,
   onSelect,
   onMove,
   onRemove,
@@ -481,6 +579,9 @@ function StepNode({
   error?: string;
   result?: RunStep;
   waiting: boolean;
+  outlets: number | null; // how many steps take this one's output, when it can take another
+  openSide: Side | null; // which outlet's step picker is open
+  onBranch: (side: Side) => void;
   onSelect: () => void;
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
@@ -544,8 +645,16 @@ function StepNode({
         </div>
       )}
 
-      {/* Below the node: what's wrong, or what the step produced */}
-      <div className="absolute left-0 top-full z-10 w-full pt-2.5">
+      {/* Free outlets: pipes sticking out of the top and bottom, capped with ⊕. Another step can take this one's output. */}
+      {outlets !== null && !result && (
+        <>
+          <Outlet side="top" outlets={outlets} open={openSide === "top"} onClick={() => onBranch("top")} />
+          <Outlet side="bottom" outlets={outlets} open={openSide === "bottom"} onClick={() => onBranch("bottom")} />
+        </>
+      )}
+
+      {/* Below the node: what's wrong, or what the step produced (dropped below the bottom outlet) */}
+      <div className={cn("pointer-events-none absolute left-0 top-full z-10 w-full pt-2.5", outlets !== null && !result && "pt-14")}>
         {error && (
           <p className="flex items-start gap-1.5 text-xs leading-snug text-red-700">
             <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} /> {error}
@@ -558,6 +667,35 @@ function StepNode({
           </PopIn>
         )}
       </div>
+    </div>
+  );
+}
+
+// One outlet: a short pipe out of the middle of a node's top or bottom edge, capped with ⊕.
+function Outlet({ side, outlets, open, onClick }: { side: Side; outlets: number; open: boolean; onClick: () => void }) {
+  const top = side === "top";
+  return (
+    <div className={cn("absolute left-1/2 flex -translate-x-1/2 items-center", top ? "bottom-full flex-col-reverse" : "top-full flex-col")}>
+      <span className="pipe-y relative h-5 w-3">
+        {/* Chevrons pointing away from the node, the way the data goes */}
+        <span className={cn("pipe-flow-y pointer-events-none absolute inset-0", top && "rotate-180")} />
+      </span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation(); // don't also select the step
+          onClick();
+        }}
+        aria-label={`Add a branch ${top ? "above" : "below"} (${outlets} of ${MAX_OUTLETS} used)`}
+        title={`Add a branch ${top ? "above" : "below"}: another step that gets this one's output (${outlets} of ${MAX_OUTLETS} used)`}
+        className={cn(
+          "flex h-7 w-7 items-center justify-center rounded-full border transition-all",
+          top ? "-mb-0.5" : "-mt-0.5",
+          open ? "rotate-45 border-ink bg-accent" : "border-ink/20 bg-paper hover:scale-110 hover:border-ink hover:bg-accent",
+        )}
+      >
+        <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </button>
     </div>
   );
 }

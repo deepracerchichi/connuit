@@ -1,10 +1,12 @@
 import type { Branch, NodeConfig, Trigger, Workflow, WorkflowEdge, WorkflowNode } from "../../api/types";
 
-// The editor works on a list of steps. An If step holds two lists of its own (its Yes and
-// No paths), and after it both paths join back into the list it sits in. The API stores
-// nodes plus edges, so these helpers convert between the two.
+// The editor works on a list of steps. Two kinds of item hold lists of their own:
+//   - an If step: a Yes path and a No path; only one of them runs;
+//   - a split: several paths that all get the previous step's output and all run.
+// After either, the paths join back into the list they sit in, so the next step carries on
+// from whichever ran. The API stores nodes plus edges, so these helpers convert between the two.
 
-export type StepKind = "http_request" | "llm_call" | "condition";
+export type StepKind = "http_request" | "llm_call" | "condition" | "split";
 export type Method = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface HeaderRow {
@@ -26,6 +28,7 @@ export interface EditorStep {
   question: string; // If steps: what the AI answers yes or no to
   yes: EditorStep[]; // If steps: the path taken on "yes" (always empty for other steps)
   no: EditorStep[];
+  lanes: EditorStep[][]; // splits: the paths that each get the previous step's output
 }
 
 export interface Draft {
@@ -57,9 +60,12 @@ export function makeStep(fields: Partial<EditorStep> & Pick<EditorStep, "kind" |
     question: "",
     yes: [],
     no: [],
+    lanes: [],
     ...fields,
   };
 }
+
+export const makeSplit = (lanes: EditorStep[][] = [[], []]) => makeStep({ kind: "split", name: "", lanes });
 
 export function emptyDraft(): Draft {
   return { name: "Untitled workflow", trigger: { type: "manual" }, steps: [] };
@@ -67,10 +73,10 @@ export function emptyDraft(): Draft {
 
 /* ---------- Finding your way around the tree ---------- */
 
-// A place in the tree: which list, and a position in it. Lists are "root" (the main line)
-// or an If step's path, e.g. "<if step id>:yes".
+// A place in the tree: which list, and a position in it. Lists are "root" (the main line) or a
+// path: "<if id>:yes", "<if id>:no", or "<split id>:<0, 1, 2…>".
 export const ROOT = "root";
-export const pathKey = (ifId: string, branch: Branch) => `${ifId}:${branch}`;
+export const pathKey = (id: string, path: Branch | number) => `${id}:${path}`;
 
 export interface Slot {
   list: string;
@@ -79,48 +85,155 @@ export interface Slot {
 
 export const sameSlot = (a: Slot | null, b: Slot) => a !== null && a.list === b.list && a.index === b.index;
 
-// Every step, the ones on If paths included, in reading order.
-export function allSteps(steps: EditorStep[]): EditorStep[] {
-  return steps.flatMap((step) => [step, ...allSteps(step.yes), ...allSteps(step.no)]);
+/* ---------- Branches: a step's extra outlets ----------
+   In the tree a step's branches are a split right after it: each path of the split is one
+   outlet. People never add a split directly; they click a free outlet on a step. */
+
+export const MAX_OUTLETS = 3;
+
+// A step has an outlet on top and one underneath: the new branch goes above or below the others.
+export type Side = "top" | "bottom";
+
+// Where the step picker goes when it's adding a new branch to a step (not a place in a list).
+export const branchSlot = (stepId: string, side: Side = "bottom"): Slot => ({ list: `branch:${side}:${stepId}`, index: 0 });
+export function branchTarget(slot: Slot): { stepId: string; side: Side } | null {
+  const match = /^branch:(top|bottom):(.+)$/.exec(slot.list);
+  return match ? { side: match[1] as Side, stepId: match[2] } : null;
 }
+
+// How many steps take this step's output directly.
+export function outletCount(list: EditorStep[], index: number) {
+  const next = list[index + 1];
+  if (next?.kind === "split") return next.lanes.length;
+  return next ? 1 : 0;
+}
+
+// Ordinary steps (not If steps, which already have Yes/No) with something after them can branch.
+// With nothing after, the normal "Add step" already adds what comes next.
+export function canBranch(list: EditorStep[], index: number) {
+  const step = list[index];
+  const outlets = outletCount(list, index);
+  return (step.kind === "http_request" || step.kind === "llm_call") && outlets >= 1 && outlets < MAX_OUTLETS;
+}
+
+// Adds `step` as a new branch of the step at `index`, above or below the existing ones. The
+// steps that were after it become a branch of their own, so nothing about them changes.
+export function addBranch(list: EditorStep[], index: number, step: EditorStep, side: Side = "bottom"): EditorStep[] {
+  const place = (lanes: EditorStep[][]) => (side === "top" ? [[step], ...lanes] : [...lanes, [step]]);
+  const next = list[index + 1];
+  if (next?.kind === "split") {
+    return list.map((item, i) => (i === index + 1 ? { ...item, lanes: place(item.lanes) } : item));
+  }
+  return [...list.slice(0, index + 1), makeSplit(place([list.slice(index + 1)]))];
+}
+
+// After something's removed from a branch: drop branches left empty, and turn a split down to
+// one branch back into a plain line. Applies to the split owning `list` (a path key), if any.
+export function tidyBranches(steps: EditorStep[], list: string): EditorStep[] {
+  const splitId = list.slice(0, list.lastIndexOf(":"));
+  const split = findStep(steps, splitId);
+  if (!split || split.kind !== "split") return steps;
+  const lanes = split.lanes.filter((lane) => lane.length > 0);
+  const at = locate(steps, splitId)!;
+  return changeList(steps, at.list, (items) =>
+    items.flatMap((item) => (item.id !== splitId ? [item] : lanes.length <= 1 ? (lanes[0] ?? []) : [{ ...item, lanes }])),
+  );
+}
+
+// Steps move with their branches, and a split never moves on its own, so a step's branches
+// always stay right behind it. Returns the list with the step's group swapped one place along.
+export function moveWithBranches(list: EditorStep[], id: string, direction: -1 | 1): EditorStep[] {
+  const groups: EditorStep[][] = [];
+  for (const item of list) {
+    if (item.kind === "split" && groups.length > 0) groups[groups.length - 1].push(item);
+    else groups.push([item]);
+  }
+  const at = groups.findIndex((group) => group[0].id === id);
+  const to = at + direction;
+  if (at < 0 || to < 0 || to >= groups.length) return list;
+  [groups[at], groups[to]] = [groups[to], groups[at]];
+  return groups.flat();
+}
+
+// Whether a step can move up/down (left/right) within its list, counting a step and its branches as one.
+export function movable(list: EditorStep[], index: number) {
+  const isStep = (item: EditorStep) => item.kind !== "split";
+  return { back: list.slice(0, index).some(isStep), forward: list.slice(index + 1).some(isStep) };
+}
+
+// The lists an item holds, with their keys (none for ordinary steps).
+export function paths(step: EditorStep): { key: string; list: EditorStep[] }[] {
+  if (step.kind === "condition") return [{ key: pathKey(step.id, "yes"), list: step.yes }, { key: pathKey(step.id, "no"), list: step.no }];
+  if (step.kind === "split") return step.lanes.map((list, i) => ({ key: pathKey(step.id, i), list }));
+  return [];
+}
+
+// The same item with each of its lists replaced.
+function withPaths(step: EditorStep, change: (list: EditorStep[], key: string) => EditorStep[]): EditorStep {
+  if (step.kind === "condition") return { ...step, yes: change(step.yes, pathKey(step.id, "yes")), no: change(step.no, pathKey(step.id, "no")) };
+  if (step.kind === "split") return { ...step, lanes: step.lanes.map((list, i) => change(list, pathKey(step.id, i))) };
+  return step;
+}
+
+// Every item, the ones on paths included, in reading order (splits too).
+export function allSteps(steps: EditorStep[]): EditorStep[] {
+  return steps.flatMap((step) => [step, ...paths(step).flatMap((path) => allSteps(path.list))]);
+}
+
+// Only the real steps: the ones that become nodes (a split is just how they're connected).
+export const runnable = (steps: EditorStep[]) => allSteps(steps).filter((step) => step.kind !== "split");
 
 export const findStep = (steps: EditorStep[], id: string) => allSteps(steps).find((step) => step.id === id);
 
-// Where a step sits: its list and its position in it.
+// Where an item sits: its list and its position in it.
 export function locate(steps: EditorStep[], id: string, list = ROOT): Slot | null {
   for (const [index, step] of steps.entries()) {
     if (step.id === id) return { list, index };
-    const inside = locate(step.yes, id, pathKey(step.id, "yes")) ?? locate(step.no, id, pathKey(step.id, "no"));
-    if (inside) return inside;
+    for (const path of paths(step)) {
+      const inside = locate(path.list, id, path.key);
+      if (inside) return inside;
+    }
   }
   return null;
 }
 
+// The list with this key ("root" or a path key).
+export function listAt(steps: EditorStep[], key: string): EditorStep[] {
+  if (key === ROOT) return steps;
+  for (const step of allSteps(steps)) {
+    const path = paths(step).find((p) => p.key === key);
+    if (path) return path.list;
+  }
+  return [];
+}
+
 // Rewrites one list, wherever it sits in the tree.
 export function changeList(steps: EditorStep[], list: string, change: (list: EditorStep[]) => EditorStep[]): EditorStep[] {
-  const walk = (current: EditorStep[], key: string): EditorStep[] =>
-    (key === list ? change(current) : current).map((step) =>
-      step.kind === "condition" ? { ...step, yes: walk(step.yes, pathKey(step.id, "yes")), no: walk(step.no, pathKey(step.id, "no")) } : step,
-    );
+  const walk = (current: EditorStep[], key: string): EditorStep[] => (key === list ? change(current) : current).map((step) => withPaths(step, walk));
   return walk(steps, ROOT);
 }
 
 export function changeStep(steps: EditorStep[], id: string, patch: Partial<EditorStep>): EditorStep[] {
-  return steps.map((step) =>
-    step.id === id ? { ...step, ...patch } : step.kind === "condition" ? { ...step, yes: changeStep(step.yes, id, patch), no: changeStep(step.no, id, patch) } : step,
-  );
+  return steps.map((step) => (step.id === id ? { ...step, ...patch } : withPaths(step, (list) => changeStep(list, id, patch))));
 }
 
+// Steps sure to have run once a list is done: everything on a split's paths, but of an If
+// only the If itself (its paths might not run).
+const surelyRan = (list: EditorStep[]): EditorStep[] => list.flatMap((step) => (step.kind === "split" ? step.lanes.flatMap(surelyRan) : [step]));
+
 // Steps that are sure to have run before this one, so it can use their output by name.
-// Steps on an If's paths might not run, so after the If only the If itself counts.
+// Steps on other paths of the same split are left out: they run, but maybe after this one.
 export function earlierSteps(steps: EditorStep[], id: string): EditorStep[] {
   const walk = (list: EditorStep[], before: EditorStep[]): EditorStep[] | null => {
     const seen = [...before];
     for (const step of list) {
       if (step.id === id) return seen;
-      const inside = walk(step.yes, [...seen, step]) ?? walk(step.no, [...seen, step]);
-      if (inside) return inside;
-      seen.push(step);
+      const own = step.kind === "condition" ? [step] : [];
+      for (const path of paths(step)) {
+        const inside = walk(path.list, [...seen, ...own]);
+        if (inside) return inside;
+      }
+      seen.push(...surelyRan([step]));
     }
     return null;
   };
@@ -150,8 +263,7 @@ function toStep(node: WorkflowNode): EditorStep {
 }
 
 // Rebuilds the step tree from a saved graph. Returns null for shapes the editor can't show
-// (e.g. steps running side by side without an If, built through the API), rather than
-// showing something that would save back differently.
+// (possible when built through the API), rather than showing something that would save back differently.
 export function fromWorkflow(workflow: Workflow): Draft | null {
   const nodes = new Map(workflow.nodes.map((node) => [node.id, node]));
   const outgoing = (id: string) => workflow.edges.filter((edge) => edge.from === id);
@@ -168,11 +280,11 @@ export function fromWorkflow(workflow: Workflow): Draft | null {
     return seen;
   };
 
-  // Where an If's two paths meet again: the first step both of them lead to.
-  const joinOf = (yesStart?: string, noStart?: string): string | undefined => {
-    if (!yesStart || !noStart) return undefined;
-    const fromNo = reachable(noStart);
-    const common = [...reachable(yesStart)].filter((id) => fromNo.has(id));
+  // Where several paths meet again: the first step all of them lead to.
+  const joinOf = (starts: (string | undefined)[]): string | undefined => {
+    if (starts.some((start) => start === undefined)) return undefined;
+    const reach = starts.map((start) => reachable(start!));
+    const common = [...reach[0]].filter((id) => reach.every((set) => set.has(id)));
     return common.find((candidate) => {
       const after = reachable(candidate);
       return common.every((id) => after.has(id));
@@ -192,14 +304,21 @@ export function fromWorkflow(workflow: Workflow): Draft | null {
       if (node.config.type === "condition") {
         const yesStart = edges.find((edge) => edge.branch === "yes")?.to;
         const noStart = edges.find((edge) => edge.branch === "no")?.to;
-        const join = joinOf(yesStart, noStart);
+        const join = joinOf([yesStart, noStart]);
         const yes = sequence(yesStart === join ? undefined : yesStart, join);
         const no = sequence(noStart === join ? undefined : noStart, join);
         if (!yes || !no) return null;
         list.push({ ...toStep(node), yes, no });
         current = join;
+      } else if (edges.length > 1) {
+        // One step feeding several: a split right after it.
+        const targets = edges.map((edge) => edge.to);
+        const join = joinOf(targets);
+        const lanes = targets.map((target) => sequence(target === join ? undefined : target, join));
+        if (lanes.some((lane) => !lane)) return null;
+        list.push(toStep(node), makeSplit(lanes as EditorStep[][]));
+        current = join;
       } else {
-        if (edges.length > 1) return null; // side-by-side steps: not something the editor draws yet
         list.push(toStep(node));
         current = edges[0]?.to;
       }
@@ -249,10 +368,16 @@ function toNode(step: EditorStep): WorkflowNode {
 type Exit = { from: string; branch?: Branch };
 
 // Connects each step to the loose ends before it. An If leaves the ends of both its paths
-// (or itself, labelled, when a path is empty), so the next step joins them back together.
+// (or itself, labelled, when a path is empty); a split hands the same ends to every path
+// and leaves all their ends. Either way the next step joins them back together.
 function connect(list: EditorStep[], entries: Exit[], edges: WorkflowEdge[]): Exit[] {
   let exits = entries;
   for (const step of list) {
+    if (step.kind === "split") {
+      const incoming = exits;
+      exits = step.lanes.flatMap((lane) => connect(lane, incoming, edges));
+      continue;
+    }
     for (const exit of exits) edges.push({ from: exit.from, to: step.id, ...(exit.branch ? { branch: exit.branch } : {}) });
     exits =
       step.kind === "condition"
@@ -266,14 +391,14 @@ function connect(list: EditorStep[], entries: Exit[], edges: WorkflowEdge[]): Ex
 export function toPayload(draft: Draft) {
   const edges: WorkflowEdge[] = [];
   connect(draft.steps, [], edges);
-  return { name: draft.name.trim(), trigger: draft.trigger, nodes: allSteps(draft.steps).map(toNode), edges };
+  return { name: draft.name.trim(), trigger: draft.trigger, nodes: runnable(draft.steps).map(toNode), edges };
 }
 
 /* ---------- Validation: catch problems here, with messages a person can act on ---------- */
 
 export interface Problems {
   general: string | null;
-  steps: Record<string, string>; // step id -> what's wrong with it
+  steps: Record<string, string>; // step (or split) id -> what's wrong with it
 }
 
 function isUrlOrPlaceholder(value: string) {
@@ -293,18 +418,42 @@ const nameKey = (name: string) => name.trim().toLowerCase();
 
 // Later steps refer to earlier ones by name ({{steps.Name}}), so a new step gets "Ask AI 2" rather than a second "Ask AI".
 export function uniqueName(name: string, steps: EditorStep[]): string {
-  const taken = new Set(allSteps(steps).map((step) => nameKey(step.name)));
+  const taken = new Set(runnable(steps).map((step) => nameKey(step.name)));
   if (!taken.has(nameKey(name))) return name;
   let n = 2;
   while (taken.has(nameKey(`${name} ${n}`))) n++;
   return `${name} ${n}`;
 }
 
+// Where a split may go: straight after an ordinary step, whose output each path gets. (After an
+// If or another split there'd be several steps to share from, and the first step of a workflow
+// must be a real step.)
+function splitProblem(list: EditorStep[], index: number): string | null {
+  const before = list[index - 1];
+  const split = list[index];
+  if (!before || before.kind === "split" || before.kind === "condition") {
+    return "These branches need an ordinary step before them: each branch gets that step's output.";
+  }
+  // One empty branch is fine: it passes the data straight on to the step after. Two would connect the same steps twice.
+  if (split.lanes.filter((lane) => lane.length === 0).length > 1) return "Only one branch can be empty. Add a step to the others.";
+  return null;
+}
+
 export function validate(draft: Draft): Problems | null {
   const steps: Record<string, string> = {};
   const seenNames = new Set<string>();
 
-  for (const step of allSteps(draft.steps)) {
+  const checkSplits = (list: EditorStep[]) =>
+    list.forEach((step, i) => {
+      if (step.kind === "split") {
+        const problem = splitProblem(list, i);
+        if (problem) steps[step.id] = problem;
+      }
+      paths(step).forEach((path) => checkSplits(path.list));
+    });
+  checkSplits(draft.steps);
+
+  for (const step of runnable(draft.steps)) {
     const duplicate = seenNames.has(nameKey(step.name));
     seenNames.add(nameKey(step.name));
 

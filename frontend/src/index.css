@@ -27,3 +27,27 @@
     color: var(--color-ink);
   }
 }
+/* ---------- Workflow pipes: shaded tubes, with chevrons showing the way data flows ----------
+   The shading is symmetric (dark walls, a bright line down the middle), so straight pipes
+   (gradients) and the bends of forks (borders plus a thin centre line) match. */
+
+.pipe-x {
+  background: linear-gradient(180deg, #072a19 0%, #0e4229 25%, #2f8058 50%, #0e4229 75%, #072a19 100%);
+}
+
+.pipe-y {
+  background: linear-gradient(90deg, #072a19 0%, #0e4229 25%, #2f8058 50%, #0e4229 75%, #072a19 100%);
+}
+
+.pipe-flow-x {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='18'%20height='12'%20viewBox='0%200%2018%2012'%3E%3Cpath%20d='M7%203.5l3%202.5-3%202.5'%20fill='none'%20stroke='%23bef264'%20stroke-opacity='.85'%20stroke-width='1.6'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-size: 18px 100%;
+}
+
+.pipe-flow-y {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='12'%20height='18'%20viewBox='0%200%2012%2018'%3E%3Cpath%20d='M3.5%207l2.5%203%202.5-3'%20fill='none'%20stroke='%23bef264'%20stroke-opacity='.85'%20stroke-width='1.6'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: repeat-y;
+  background-size: 100% 18px;
+}
+

@@ -1,6 +1,6 @@
 import type { Branch, Run, RunStep } from "../../api/types";
 import { detectBlock } from "./blocks";
-import { allSteps, type EditorStep } from "./model";
+import { runnable, type EditorStep } from "./model";
 
 // Small display helpers shared by the desktop canvas and the phone list.
 
@@ -12,7 +12,7 @@ export function deliveredResults(run: Run | null, reached: number) {
 }
 
 // Steps are numbered in reading order, paths included.
-export const stepNumbers = (steps: EditorStep[]) => new Map(allSteps(steps).map((step, i) => [step.id, i + 1]));
+export const stepNumbers = (steps: EditorStep[]) => new Map(runnable(steps).map((step, i) => [step.id, i + 1]));
 
 // The small label above a step's name: its block, or AI/HTTP for hand-built ones.
 export function kindLabel(step: EditorStep) {
