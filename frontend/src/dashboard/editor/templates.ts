@@ -1,6 +1,6 @@
 import { CloudSun, Megaphone, Newspaper, Webhook, type LucideIcon } from "lucide-react";
 import type { Draft } from "./model";
-import { askAi, hackerNews, slack, stepFrom, weather } from "./blocks";
+import { askAi, decide, hackerNews, slack, stepFrom, weather } from "./blocks";
 
 // Starters that run as-is (free public APIs), apart from picking a Slack channel.
 
@@ -48,17 +48,22 @@ export const TEMPLATES: Template[] = [
     }),
   },
   {
-    key: "weather",
-    title: "Weather heads-up",
-    description: "One line before you leave the house: umbrella or not, coat or not.",
+    key: "rain-alert",
+    title: "Rain alert, only when it matters",
+    description: "Checks the forecast every morning. AI decides if rain is likely, and only then warns you on Slack. Dry days stay quiet.",
     icon: CloudSun,
     build: () => ({
-      name: "Weather heads-up",
+      name: "Rain alert",
       trigger: { type: "cron", schedule: "0 7 * * *" },
       steps: [
         stepFrom(weather, { city: "london" }, "Get today's weather"),
-        stepFrom(askAi, { instruction: "Write one friendly line telling me whether I need an umbrella or a coat today, and the high temperature." }, "Write the heads-up"),
-        stepFrom(slack, {}, "Post to Slack"),
+        {
+          ...stepFrom(decide, { question: "Is the chance of rain today 50% or higher?" }, "Will it rain?"),
+          yes: [
+            stepFrom(askAi, { instruction: "Write one friendly line warning me to take an umbrella, with the chance of rain and the high temperature." }, "Write the warning"),
+            stepFrom(slack, {}, "Post to Slack"),
+          ],
+        },
       ],
     }),
   },

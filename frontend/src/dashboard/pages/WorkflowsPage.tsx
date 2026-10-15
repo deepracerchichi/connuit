@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Globe, Pencil, Play, Plus, Sparkles, Workflow as WorkflowIcon } from "lucide-react";
+import { ArrowRight, GitFork, Globe, Pencil, Play, Plus, Sparkles, Workflow as WorkflowIcon } from "lucide-react";
 import { API_URL, apiFetch, ApiError } from "../../api/client";
 import type { Run, RunStatus, RunWithWorkflow, Workflow } from "../../api/types";
 import { errorMessage, useActivity } from "../useApi";
@@ -84,6 +84,10 @@ function WorkflowCard({ workflow, lastRun, onRunFinished }: { workflow: Workflow
               {node.config.type === "llm_call" ? (
                 <span className="flex h-5 w-5 items-center justify-center rounded bg-accent">
                   <Sparkles className="h-3 w-3" strokeWidth={2} />
+                </span>
+              ) : node.config.type === "condition" ? (
+                <span className="flex h-5 w-5 items-center justify-center rounded bg-ink text-accent">
+                  <GitFork className="h-3 w-3" strokeWidth={2} />
                 </span>
               ) : (
                 <Globe className="h-3.5 w-3.5 text-ink/50" strokeWidth={1.75} />

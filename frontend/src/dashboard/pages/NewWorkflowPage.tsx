@@ -1,9 +1,11 @@
+import { Fragment } from "react";
 import { Link, useNavigate } from "react-router";
 import { ArrowLeft, ArrowRight, Plus } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { describeCron, useRise } from "../ui";
 import { detectBlock } from "../editor/blocks";
 import { TEMPLATES } from "../editor/templates";
+import type { EditorStep } from "../editor/model";
 
 // "New workflow" lands here, inside the normal dashboard. Picking a template (or starting
 // from scratch) opens the full-screen canvas at /dashboard/workflows/new/<template>.
@@ -54,18 +56,7 @@ function TemplateGallery({ onPick }: { onPick: (templateKey: string) => void }) 
 
               {/* Its steps, as a mini pipe */}
               <div className="mt-6 flex flex-wrap items-center gap-1.5">
-                {draft.steps.map((step, i) => {
-                  const { block } = detectBlock(step);
-                  return (
-                    <span key={step.id} className="flex items-center gap-1.5">
-                      {i > 0 && <span className="h-0.5 w-4 rounded-full bg-ink" />}
-                      <span className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs", block.ai ? "bg-accent" : "bg-mint")}>
-                        <block.icon className="h-3.5 w-3.5" strokeWidth={1.75} />
-                        {block.label}
-                      </span>
-                    </span>
-                  );
-                })}
+                <MiniPipe steps={draft.steps} />
               </div>
 
               <span className="mt-6 inline-flex items-center gap-2 text-sm text-ink/60 transition-colors group-hover:text-ink">
@@ -89,4 +80,30 @@ function TemplateGallery({ onPick }: { onPick: (templateKey: string) => void }) 
       </div>
     </div>
   );
+}
+
+// A template's steps as a row of chips. An If shows its Yes path in a dashed group after it.
+function MiniPipe({ steps }: { steps: EditorStep[] }) {
+  return steps.map((step, i) => {
+    const { block } = detectBlock(step);
+    return (
+      // A fragment, not a wrapper: each chip wraps on its own, so an If and its path stay on one line when they fit.
+      <Fragment key={step.id}>
+        {i > 0 && <span className="h-0.5 w-4 rounded-full bg-ink" />}
+        <span className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs", block.ai ? "bg-accent" : "bg-mint")}>
+          <block.icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+          {block.label}
+        </span>
+        {step.yes.length > 0 && (
+          <>
+            <span className="h-0.5 w-4 rounded-full bg-ink" />
+            <span className="flex flex-wrap items-center gap-1.5 rounded-xl border border-dashed border-ink/30 p-1.5">
+              <span className="px-1 font-mono text-[10px] uppercase text-ink/55">If yes</span>
+              <MiniPipe steps={step.yes} />
+            </span>
+          </>
+        )}
+      </Fragment>
+    );
+  });
 }

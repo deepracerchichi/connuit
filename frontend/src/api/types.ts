@@ -12,7 +12,16 @@ export type NodeConfig =
       body?: unknown;
       credentialId?: string;
     }
-  | { type: "llm_call"; prompt: string; systemPrompt?: string };
+  | { type: "llm_call"; prompt: string; systemPrompt?: string }
+  | { type: "condition"; question: string }; // an If step: the AI answers yes or no
+
+export type Branch = "yes" | "no";
+
+export interface WorkflowEdge {
+  from: string;
+  to: string;
+  branch?: Branch; // only on connections leaving an If step: which answer takes this path
+}
 
 export interface WorkflowNode {
   id: string;
@@ -24,7 +33,7 @@ export interface Workflow {
   _id: string;
   name: string;
   nodes: WorkflowNode[];
-  edges: { from: string; to: string }[];
+  edges: WorkflowEdge[];
   trigger: Trigger;
   webhookToken?: string;
   createdAt: string;
@@ -33,9 +42,13 @@ export interface Workflow {
 
 export type RunStatus = "pending" | "running" | "succeeded" | "failed";
 
+// "skipped": the step was on a path an If step didn't take.
+export type StepStatus = RunStatus | "skipped";
+
 export interface RunStep {
   nodeId: string;
-  status: RunStatus;
+  status: StepStatus;
+  decision?: Branch; // what an If step answered
   output?: unknown;
   error?: string;
   startedAt: string;
