@@ -1,13 +1,15 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, CircleAlert, Maximize, Minus, Plus, Trash2 } from "lucide-react";
-import type { Run, RunStep } from "../../api/types";
+import type { Branch, RunStep } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { formatDuration, StatusIcon } from "../ui";
 import { detectBlock } from "./blocks";
-import type { Draft, EditorStep, Problems } from "./model";
-import { IconButton, PopIn, preview, selectOnKey, StepPicker, triggerSummary, usePulse } from "./Pipeline";
+import { allSteps, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Slot } from "./model";
+import { IconButton, PopIn, selectOnKey, StepPicker, triggerSummary, usePulse, type PipeProps } from "./Pipeline";
+import { BRANCH_LABEL, deliveredResults, kindLabel, resultText, stepNumbers } from "./view";
 
 // The desktop editor: compact nodes on a horizontal pipe, on a canvas you can pan and zoom.
+// An If node forks the pipe into a Yes lane and a No lane, which join again after it.
 // Drag the background (or scroll) to move around, Ctrl/Cmd + scroll to zoom, "Fit" to see it all.
 
 const MIN_SCALE = 0.35;
@@ -23,23 +25,28 @@ interface View {
   scale: number;
 }
 
-export interface CanvasProps {
-  draft: Draft;
+export interface CanvasProps extends PipeProps {
   selected: string | null; // "trigger", a step id, or nothing
   onSelect: (id: string | null) => void;
-  insertAt: number | null;
-  onOpenInsert: (index: number | null) => void;
-  onInsert: (index: number, step: EditorStep) => void;
-  onMove: (index: number, direction: -1 | 1) => void;
-  onRemove: (index: number) => void;
-  problems: Problems | null;
-  run: Run | null;
   coveredRight: number; // pixels hidden behind the inspector panel on the right
   overlay?: ReactNode; // banners floating over the top of the canvas
 }
 
+// Where an element sits inside the (unscaled) world, however deeply it's nested in lanes.
+function positionIn(world: HTMLElement, el: HTMLElement) {
+  let x = 0;
+  let y = 0;
+  let current: HTMLElement | null = el;
+  while (current && current !== world) {
+    x += current.offsetLeft;
+    y += current.offsetTop;
+    current = current.offsetParent as HTMLElement | null;
+  }
+  return { x, y, width: el.offsetWidth, height: el.offsetHeight };
+}
+
 export default function Canvas(props: CanvasProps) {
-  const { draft, selected, onSelect, insertAt, onOpenInsert, onInsert, onMove, onRemove, problems, run, coveredRight, overlay } = props;
+  const { draft, selected, onSelect, insertAt, onOpenInsert, onInsert, run, coveredRight, overlay } = props;
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
@@ -52,6 +59,8 @@ export default function Canvas(props: CanvasProps) {
 
   const reached = usePulse(worldRef, run, "x");
   const steps = draft.steps;
+  const stepCount = allSteps(steps).length;
+  const ctx: LaneContext = { ...props, results: deliveredResults(run, reached), numbers: stepNumbers(steps) };
 
   /* ---------- Camera ---------- */
 
@@ -83,15 +92,24 @@ export default function Canvas(props: CanvasProps) {
   // Glide just enough to show a node comfortably (does nothing if it's already in view).
   const bringIntoView = useCallback(
     (id: string) => {
-      const node = worldRef.current?.querySelector<HTMLElement>(`[data-node="${id}"]`);
-      if (!node || !viewportRef.current) return;
+      const world = worldRef.current;
+      const node = world?.querySelector<HTMLElement>(`[data-node="${CSS.escape(id)}"]`);
+      if (!world || !node || !viewportRef.current) return;
       const v = viewRef.current;
+      const box = positionIn(world, node);
       const width = visibleWidth();
-      const left = v.x + node.offsetLeft * v.scale;
-      const right = left + node.offsetWidth * v.scale;
-      if (left >= EDGE && right <= width - EDGE) return;
+      const height = viewportRef.current.clientHeight;
+      const left = v.x + box.x * v.scale;
+      const top = v.y + box.y * v.scale;
+      const fitsX = left >= EDGE && left + box.width * v.scale <= width - EDGE;
+      const fitsY = top >= EDGE && top + box.height * v.scale <= height - EDGE;
+      if (fitsX && fitsY) return;
       setSmooth(true);
-      setView({ ...v, x: width / 2 - (node.offsetLeft + node.offsetWidth / 2) * v.scale });
+      setView({
+        ...v,
+        x: fitsX ? v.x : width / 2 - (box.x + box.width / 2) * v.scale,
+        y: fitsY ? v.y : height / 2 - (box.y + box.height / 2) * v.scale,
+      });
     },
     [visibleWidth],
   );
@@ -118,12 +136,13 @@ export default function Canvas(props: CanvasProps) {
   // Bring the selected node into view (e.g. after adding a step, or when the inspector covers it).
   useEffect(() => {
     if (selected) bringIntoView(selected);
-  }, [selected, steps.length, bringIntoView]);
+  }, [selected, stepCount, bringIntoView]);
 
   // During a test run the camera follows the pulse, so you can watch every step happen.
   useEffect(() => {
-    if (!run || steps.length === 0) return;
-    bringIntoView(steps[Math.min(reached, steps.length - 1)].id);
+    const ranSteps = run?.steps ?? [];
+    if (ranSteps.length === 0) return;
+    bringIntoView(ranSteps[Math.min(reached, ranSteps.length - 1)].nodeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run !== null, reached, bringIntoView]);
 
@@ -176,6 +195,7 @@ export default function Canvas(props: CanvasProps) {
   /* ---------- Render ---------- */
 
   const dot = 24 * view.scale;
+  const endSlot: Slot = { list: ROOT, index: steps.length };
 
   return (
     <div
@@ -204,34 +224,15 @@ export default function Canvas(props: CanvasProps) {
       >
         <TriggerNode draft={draft} selected={selected === "trigger"} onSelect={() => onSelect("trigger")} />
 
-        {steps.map((step, i) => {
-          const result = run && i < reached ? run.steps.find((s) => s.nodeId === step.id) : undefined;
-          return (
-            <Fragment key={step.id}>
-              <Pipe segment={i} open={insertAt === i} onAdd={() => onOpenInsert(insertAt === i ? null : i)} />
-              <StepNode
-                step={step}
-                index={i}
-                count={steps.length}
-                selected={selected === step.id}
-                error={problems?.steps[step.id]}
-                result={result}
-                waiting={!!run && i >= reached}
-                onSelect={() => onSelect(step.id)}
-                onMove={(direction) => onMove(i, direction)}
-                onRemove={() => onRemove(i)}
-              />
-            </Fragment>
-          );
-        })}
+        <Sequence list={steps} listKey={ROOT} ctx={ctx} />
 
-        <Pipe segment={steps.length} short />
+        <Pipe short />
         <button
           type="button"
-          onClick={() => onOpenInsert(insertAt === steps.length ? null : steps.length)}
+          onClick={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)}
           className={cn(
             "flex h-12 shrink-0 items-center gap-2 rounded-full border border-dashed px-5 text-sm transition-colors",
-            insertAt === steps.length ? "border-ink bg-accent" : "border-ink/30 bg-white hover:border-ink hover:bg-accent",
+            sameSlot(insertAt, endSlot) ? "border-ink bg-accent" : "border-ink/30 bg-white hover:border-ink hover:bg-accent",
           )}
         >
           <Plus className="h-4 w-4" strokeWidth={2} />
@@ -307,18 +308,119 @@ function ZoomButton({ label, onClick, children }: { label: string; onClick: () =
   );
 }
 
+/* ---------- A list of steps on the pipe; If steps fork into lanes ---------- */
+
+interface LaneContext extends CanvasProps {
+  results: Map<string, RunStep>;
+  numbers: Map<string, number>;
+}
+
+function Sequence({ list, listKey, ctx }: { list: EditorStep[]; listKey: string; ctx: LaneContext }) {
+  const { selected, onSelect, insertAt, onOpenInsert, onMove, onRemove, problems, run, results, numbers } = ctx;
+
+  return list.map((step, i) => {
+    const slot = { list: listKey, index: i };
+    const result = results.get(step.id);
+    return (
+      <Fragment key={step.id}>
+        <Pipe into={step.id} open={sameSlot(insertAt, slot)} onAdd={() => onOpenInsert(sameSlot(insertAt, slot) ? null : slot)} />
+        <StepNode
+          step={step}
+          number={numbers.get(step.id) ?? i + 1}
+          first={i === 0}
+          last={i === list.length - 1}
+          selected={selected === step.id}
+          error={problems?.steps[step.id]}
+          result={result}
+          waiting={!!run && !result}
+          onSelect={() => onSelect(step.id)}
+          onMove={(direction) => onMove(step.id, direction)}
+          onRemove={() => onRemove(step.id)}
+        />
+        {step.kind === "condition" && (
+          <>
+            <Pipe short />
+            <Fork step={step} ctx={ctx} />
+          </>
+        )}
+      </Fragment>
+    );
+  });
+}
+
+// The two lanes, stacked. Each lane draws its own quarter of the bends with rounded borders,
+// so the left bends meet in one line the incoming pipe hits, and the right ones in one line
+// the outgoing pipe leaves from, whatever height each lane grows to.
+function Fork({ step, ctx }: { step: EditorStep; ctx: LaneContext }) {
+  return (
+    <div className="flex shrink-0 flex-col">
+      {(["yes", "no"] as const).map((branch) => (
+        <Lane key={branch} step={step} branch={branch} ctx={ctx} />
+      ))}
+    </div>
+  );
+}
+
+function Lane({ step, branch, ctx }: { step: EditorStep; branch: Branch; ctx: LaneContext }) {
+  const { insertAt, onOpenInsert } = ctx;
+  const list = step[branch];
+  const key = pathKey(step.id, branch);
+  const endSlot: Slot = { list: key, index: list.length };
+  const decision = ctx.results.get(step.id)?.decision;
+  const top = branch === "yes";
+  // 3px = half the 6px pipe, so the bend's border lines up with the middle of the lane's pipe.
+  const bend = cn("pointer-events-none absolute w-8 border-ink", top ? "bottom-0 top-[calc(50%-3px)] border-t-[6px]" : "bottom-[calc(50%-3px)] top-0 border-b-[6px]");
+
+  return (
+    <div className={cn("relative flex items-center px-8 py-12 transition-opacity", decision && decision !== branch && "opacity-40")}>
+      <span className={cn(bend, "left-0 border-l-[6px]", top ? "rounded-tl-2xl" : "rounded-bl-2xl")} />
+      <span className={cn(bend, "right-0 border-r-[6px]", top ? "rounded-tr-2xl" : "rounded-br-2xl")} />
+
+      <span
+        className={cn(
+          "relative z-10 shrink-0 rounded-full px-2.5 py-1 font-mono text-[10px] uppercase leading-none ring-1 ring-ink/15",
+          top ? "bg-accent" : "bg-white",
+          decision === branch && "ring-2 ring-ink",
+        )}
+      >
+        If {BRANCH_LABEL[branch].toLowerCase()}
+      </span>
+
+      <Sequence list={list} listKey={key} ctx={ctx} />
+
+      {/* The rest of the lane, stretching so both lanes end together; its ⊕ adds to the end of this path */}
+      <Pipe grow open={sameSlot(insertAt, endSlot)} onAdd={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)} label={list.length === 0 ? `Add a step for “${BRANCH_LABEL[branch]}”` : undefined} />
+    </div>
+  );
+}
+
 /* ---------- The horizontal pipe between nodes ---------- */
 
-function Pipe({ segment, open = false, short = false, onAdd }: { segment: number; open?: boolean; short?: boolean; onAdd?: () => void }) {
+function Pipe({
+  into,
+  open = false,
+  short = false,
+  grow = false,
+  label,
+  onAdd,
+}: {
+  into?: string; // the step this pipe leads into: the test-run pulse travels along it
+  open?: boolean;
+  short?: boolean;
+  grow?: boolean;
+  label?: string;
+  onAdd?: () => void;
+}) {
   return (
-    <div data-segment={segment} className={cn("relative h-1.5 shrink-0 rounded-full bg-ink", short ? "w-10" : "w-24")}>
+    <div data-into={into} className={cn("relative h-1.5 shrink-0 rounded-full bg-ink", short ? "w-10" : "w-24", grow && "min-w-24 flex-1")}>
       {/* The pulse: GSAP animates `left` only, so no Tailwind transforms on it */}
       <span className="js-pulse absolute -top-0.75 left-0 h-3 w-3 rounded-full bg-accent opacity-0 shadow-[0_0_14px_5px_rgba(190,242,100,0.75)]" />
       {onAdd && (
         <button
           type="button"
           onClick={onAdd}
-          aria-label="Insert a step here"
+          aria-label={label ?? "Insert a step here"}
+          title={label}
           className={cn(
             "absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-all",
             open ? "rotate-45 border-ink bg-accent" : "border-ink/20 bg-paper hover:scale-110 hover:border-ink hover:bg-accent",
@@ -360,8 +462,9 @@ function TriggerNode({ draft, selected, onSelect }: { draft: Draft; selected: bo
 
 function StepNode({
   step,
-  index,
-  count,
+  number,
+  first,
+  last,
   selected,
   error,
   result,
@@ -371,8 +474,9 @@ function StepNode({
   onRemove,
 }: {
   step: EditorStep;
-  index: number;
-  count: number;
+  number: number;
+  first: boolean;
+  last: boolean;
   selected: boolean;
   error?: string;
   result?: RunStep;
@@ -381,10 +485,10 @@ function StepNode({
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
 }) {
-  const isAi = step.kind === "llm_call";
   const { block, params } = detectBlock(step);
   const Icon = block.icon;
-  const kindLabel = block.key === "custom" ? (isAi ? "AI" : "HTTP") : block.label;
+  const isIf = step.kind === "condition";
+  const skipped = result?.status === "skipped";
 
   return (
     <div
@@ -394,44 +498,46 @@ function StepNode({
       onClick={onSelect}
       onKeyDown={(e) => selectOnKey(e, onSelect)}
       className={cn(
-        "js-rise group relative w-60 shrink-0 cursor-pointer rounded-2xl border bg-white p-3.5 outline-none transition-[border-color,box-shadow] focus-visible:ring-4 focus-visible:ring-ink/20",
-        selected ? "border-ink ring-2 ring-ink" : "border-ink/10 hover:border-ink/30",
+        "js-rise group relative w-60 shrink-0 cursor-pointer rounded-2xl border p-3.5 outline-none transition-[border-color,box-shadow] focus-visible:ring-4 focus-visible:ring-ink/20",
+        // An If is the one dark node, so forks stand out on the canvas.
+        isIf ? "bg-ink text-white" : "bg-white",
+        selected ? "border-ink ring-2 ring-ink ring-offset-2 ring-offset-paper" : isIf ? "border-ink" : "border-ink/10 hover:border-ink/30",
         error && !selected && "border-red-300",
-        waiting && "opacity-55",
+        (waiting || skipped) && "opacity-55",
       )}
     >
       <div className="flex items-center gap-3">
-        <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", block.ai || isAi ? "bg-accent" : "bg-mint")}>
+        <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-ink", block.ai || step.kind === "llm_call" ? "bg-accent" : "bg-mint")}>
           <Icon className="h-5 w-5" strokeWidth={1.75} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-mono text-[10px] uppercase text-ink/45">
-            {index + 1} · {kindLabel}
+          <p className={cn("truncate font-mono text-[10px] uppercase", isIf ? "text-white/55" : "text-ink/45")}>
+            {number} · {kindLabel(step)}
           </p>
           <p className="truncate text-sm">{step.name.trim() || "Untitled step"}</p>
         </div>
       </div>
-      <p className={cn("mt-2.5 truncate text-xs text-ink/50", block.key === "custom" && "font-mono")}>{block.summary(params, step)}</p>
+      <p className={cn("mt-2.5 truncate text-xs", isIf ? "text-white/60" : "text-ink/50", block.key === "custom" && "font-mono")}>{block.summary(params, step)}</p>
 
       {/* Test-run status badge */}
       {result && (
         <span className="absolute -right-2.5 -top-2.5 flex items-center gap-1.5 rounded-full bg-white py-1 pl-2 pr-1 font-mono text-[10px] text-ink/55 shadow-sm ring-1 ring-ink/10">
-          {result.finishedAt && formatDuration(new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime())}
+          {skipped ? "skipped" : result.finishedAt && formatDuration(new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime())}
           <StatusIcon status={result.status} className="h-4 w-4" />
         </span>
       )}
 
       {/* Move / remove: above the node on hover (the padding bridges the gap so hover isn't lost) */}
       {!result && (
-        <div className={cn("absolute bottom-full right-0 pb-2", selected ? "block" : "hidden group-hover:block group-focus-within:block")}>
+        <div className={cn("absolute bottom-full right-0 pb-2 text-ink", selected ? "block" : "hidden group-hover:block group-focus-within:block")}>
           <div className="flex gap-0.5 rounded-lg bg-white p-0.5 shadow-sm ring-1 ring-ink/10">
-            <IconButton label="Move left" disabled={index === 0} onClick={() => onMove(-1)}>
+            <IconButton label="Move left" disabled={first} onClick={() => onMove(-1)}>
               <ChevronLeft className="h-4 w-4" strokeWidth={2} />
             </IconButton>
-            <IconButton label="Move right" disabled={index === count - 1} onClick={() => onMove(1)}>
+            <IconButton label="Move right" disabled={last} onClick={() => onMove(1)}>
               <ChevronRight className="h-4 w-4" strokeWidth={2} />
             </IconButton>
-            <IconButton label="Remove step" danger onClick={onRemove}>
+            <IconButton label={isIf ? "Remove this If and its paths" : "Remove step"} danger onClick={onRemove}>
               <Trash2 className="h-4 w-4" strokeWidth={1.75} />
             </IconButton>
           </div>
@@ -439,16 +545,16 @@ function StepNode({
       )}
 
       {/* Below the node: what's wrong, or what the step produced */}
-      <div className="absolute left-0 top-full w-full pt-2.5">
+      <div className="absolute left-0 top-full z-10 w-full pt-2.5">
         {error && (
           <p className="flex items-start gap-1.5 text-xs leading-snug text-red-700">
             <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} /> {error}
           </p>
         )}
         {result?.error && <PopIn className="rounded-xl bg-red-50 px-3 py-2 font-mono text-[11px] leading-snug text-red-700">{result.error}</PopIn>}
-        {result && result.output !== undefined && (
+        {result && !skipped && result.output !== undefined && (
           <PopIn className="max-h-20 overflow-hidden rounded-xl bg-ink px-3 py-2 font-mono text-[11px] leading-relaxed text-white/85">
-            {preview(result.output)}
+            {resultText(result)}
           </PopIn>
         )}
       </div>

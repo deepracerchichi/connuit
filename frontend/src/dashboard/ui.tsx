@@ -1,8 +1,8 @@
 import { useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { Check, CircleAlert, CircleCheck, CircleX, Clock, Copy, LoaderCircle, Play, RotateCw, Webhook, type LucideIcon } from "lucide-react";
-import type { Run, RunStatus, Trigger } from "../api/types";
+import { Check, CircleAlert, CircleCheck, CircleSlash, CircleX, Clock, Copy, LoaderCircle, Play, RotateCw, Webhook, type LucideIcon } from "lucide-react";
+import type { Run, RunStatus, StepStatus, Trigger } from "../api/types";
 import { cn } from "../lib/cn";
 
 /* ---------- Page header: same tag + big heading as the landing sections ---------- */
@@ -49,10 +49,11 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   failed: "Failed",
 };
 
-export function StatusIcon({ status, className }: { status: RunStatus; className?: string }) {
+export function StatusIcon({ status, className }: { status: StepStatus; className?: string }) {
   const size = cn("h-4 w-4 shrink-0", className);
   if (status === "succeeded") return <CircleCheck className={size} strokeWidth={2} />;
   if (status === "failed") return <CircleX className={cn(size, "text-red-600")} strokeWidth={2} />;
+  if (status === "skipped") return <CircleSlash className={cn(size, "text-ink/35")} strokeWidth={2} />; // on a path an If didn't take
   return <LoaderCircle className={cn(size, "animate-spin text-ink/60")} strokeWidth={2} />;
 }
 

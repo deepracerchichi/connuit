@@ -2,35 +2,45 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNo
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ChevronDown, ChevronUp, CircleAlert, Clock, Play, Plus, Trash2, Webhook, X } from "lucide-react";
-import type { Run, RunStep } from "../../api/types";
+import type { Branch, Run, RunStep } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { describeCron, formatDuration, StatusIcon } from "../ui";
 import { BLOCKS, detectBlock } from "./blocks";
-import type { Draft, EditorStep, Problems } from "./model";
+import { pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Problems, type Slot } from "./model";
+import { BRANCH_LABEL, deliveredResults, kindLabel, resultText, stepNumbers } from "./view";
 
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export interface PipelineProps {
+// What the desktop canvas and the phone list both need.
+export interface PipeProps {
   draft: Draft;
-  selected: string; // "trigger" or a step id
-  onSelect: (id: string) => void;
-  insertAt: number | null;
-  onOpenInsert: (index: number | null) => void;
-  onInsert: (index: number, step: EditorStep) => void;
-  onMove: (index: number, direction: -1 | 1) => void;
-  onRemove: (index: number) => void;
+  insertAt: Slot | null; // where the step picker is open
+  onOpenInsert: (slot: Slot | null) => void;
+  onInsert: (slot: Slot, step: EditorStep) => void;
+  onMove: (id: string, direction: -1 | 1) => void;
+  onRemove: (id: string) => void;
   problems: Problems | null;
   run: Run | null; // the test run being watched, if any
+}
+
+export interface PipelineProps extends PipeProps {
+  selected: string; // "trigger" or a step id
+  onSelect: (id: string) => void;
   renderSettings: (id: string) => ReactNode; // shown under the selected card on small screens
 }
 
-// How many steps the lime pulse has reached during a test run. A step only shows its
-// result once the pulse arrives, so you watch the data travel along the pipe.
+// How many of the run's steps the lime pulse has delivered. A step only shows its result once
+// the pulse arrives, so you watch the data travel along the pipe. The pulse runs down the pipe
+// leading into each step (marked data-into); skipped steps (an If's other path) get none.
 // `axis` is the pipe's direction: "y" for the phone list, "x" for the desktop canvas.
 export function usePulse(rootRef: RefObject<HTMLElement | null>, run: Run | null, axis: "x" | "y") {
   const [reached, setReached] = useState(0);
   const target = run?.steps.length ?? 0;
   const watching = run !== null;
+  const runRef = useRef(run);
+  useEffect(() => {
+    runRef.current = run;
+  });
 
   // Depends on the step count, not the run object: every poll returns a new object,
   // and re-running this effect each time would cut a pulse off mid-flight.
@@ -44,16 +54,14 @@ export function usePulse(rootRef: RefObject<HTMLElement | null>, run: Run | null
       return;
     }
     if (reached >= target) return;
-    if (reduceMotion()) {
-      setReached(target);
-      return;
-    }
 
-    const pulse = rootRef.current?.querySelector<HTMLElement>(`[data-segment="${reached}"] .js-pulse`);
-    if (!pulse) {
+    const next = runRef.current?.steps[reached];
+    const pulse = next && rootRef.current?.querySelector<HTMLElement>(`[data-into="${CSS.escape(next.nodeId)}"] .js-pulse`);
+    if (reduceMotion() || !pulse || next.status === "skipped") {
       setReached((r) => r + 1);
       return;
     }
+
     const prop = axis === "y" ? "top" : "left";
     const tween = gsap.fromTo(
       pulse,
@@ -76,64 +84,133 @@ export function usePulse(rootRef: RefObject<HTMLElement | null>, run: Run | null
   return reached;
 }
 
-export default function Pipeline(props: PipelineProps) {
-  const { draft, selected, onSelect, insertAt, onOpenInsert, onInsert, onMove, onRemove, problems, run, renderSettings } = props;
-  const rootRef = useRef<HTMLDivElement>(null);
-  const reached = usePulse(rootRef, run, "y");
+/* ---------- The phone list ---------- */
 
-  const steps = draft.steps;
+// Everything a list needs to draw its cards, passed down into If paths unchanged.
+interface ListContext extends PipelineProps {
+  results: Map<string, RunStep>;
+  numbers: Map<string, number>;
+}
+
+export default function Pipeline(props: PipelineProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const reached = usePulse(rootRef, props.run, "y");
+  const ctx: ListContext = { ...props, results: deliveredResults(props.run, reached), numbers: stepNumbers(props.draft.steps) };
+  const { draft, selected, onSelect, renderSettings } = props;
 
   return (
     <div ref={rootRef} className="flex flex-col items-stretch">
       <TriggerCard draft={draft} selected={selected === "trigger"} onSelect={() => onSelect("trigger")} />
       {selected === "trigger" && <div className="mt-3 lg:hidden">{renderSettings("trigger")}</div>}
 
-      {steps.map((step, i) => {
-        const result = run && i < reached ? run.steps.find((s) => s.nodeId === step.id) : undefined;
-        return (
-          <Fragment key={step.id}>
-            <Pipe segment={i} open={insertAt === i} onAdd={() => onOpenInsert(insertAt === i ? null : i)} />
-            {insertAt === i && <StepPicker onPick={(s) => onInsert(i, s)} onClose={() => onOpenInsert(null)} />}
-            <StepCard
-              step={step}
-              index={i}
-              count={steps.length}
-              selected={selected === step.id}
-              error={problems?.steps[step.id]}
-              result={result}
-              waiting={!!run && i >= reached}
-              onSelect={() => onSelect(step.id)}
-              onMove={(direction) => onMove(i, direction)}
-              onRemove={() => onRemove(i)}
-            />
-            {selected === step.id && <div className="mt-3 lg:hidden">{renderSettings(step.id)}</div>}
-          </Fragment>
-        );
-      })}
+      <StepList list={draft.steps} listKey={ROOT} ctx={ctx} />
 
       {/* The open end of the pipe: add the next step */}
-      <Pipe segment={steps.length} short />
-      {insertAt === steps.length ? (
-        <StepPicker onPick={(s) => onInsert(steps.length, s)} onClose={() => onOpenInsert(null)} />
-      ) : (
-        <button
-          type="button"
-          onClick={() => onOpenInsert(steps.length)}
-          className="mx-auto inline-flex items-center gap-2 rounded-full border border-dashed border-ink/30 bg-white px-5 py-2.5 text-sm transition-colors hover:border-ink hover:bg-accent"
-        >
-          <Plus className="h-4 w-4" strokeWidth={2} />
-          {steps.length === 0 ? "Add your first step" : "Add step"}
-        </button>
-      )}
+      <Pipe short />
+      <AddAtEnd slot={{ list: ROOT, index: draft.steps.length }} ctx={ctx} label={draft.steps.length === 0 ? "Add your first step" : "Add step"} />
     </div>
+  );
+}
+
+function StepList({ list, listKey, ctx }: { list: EditorStep[]; listKey: string; ctx: ListContext }) {
+  const { selected, onSelect, insertAt, onOpenInsert, onInsert, onMove, onRemove, problems, run, renderSettings, results, numbers } = ctx;
+
+  return list.map((step, i) => {
+    const slot = { list: listKey, index: i };
+    const result = results.get(step.id);
+    return (
+      <Fragment key={step.id}>
+        <Pipe into={step.id} open={sameSlot(insertAt, slot)} onAdd={() => onOpenInsert(sameSlot(insertAt, slot) ? null : slot)} />
+        {sameSlot(insertAt, slot) && <StepPicker onPick={(s) => onInsert(slot, s)} onClose={() => onOpenInsert(null)} />}
+        <StepCard
+          step={step}
+          number={numbers.get(step.id) ?? i + 1}
+          first={i === 0}
+          last={i === list.length - 1}
+          selected={selected === step.id}
+          error={problems?.steps[step.id]}
+          result={result}
+          waiting={!!run && !result}
+          onSelect={() => onSelect(step.id)}
+          onMove={(direction) => onMove(step.id, direction)}
+          onRemove={() => onRemove(step.id)}
+        />
+        {selected === step.id && <div className="mt-3 lg:hidden">{renderSettings(step.id)}</div>}
+        {step.kind === "condition" && <Paths step={step} ctx={ctx} />}
+      </Fragment>
+    );
+  });
+}
+
+// An If step's two paths, one under the other, each its own little pipe.
+function Paths({ step, ctx }: { step: EditorStep; ctx: ListContext }) {
+  const decision = ctx.results.get(step.id)?.decision;
+  return (
+    <>
+      <Pipe short />
+      <div className="flex flex-col gap-3">
+        {(["yes", "no"] as const).map((branch) => {
+          const list = step[branch];
+          const key = pathKey(step.id, branch);
+          return (
+            <div
+              key={branch}
+              className={cn(
+                "rounded-2xl border border-dashed p-3 transition-opacity",
+                branch === "yes" ? "border-ink/30 bg-accent/15" : "border-ink/20 bg-white/40",
+                decision && decision !== branch && "opacity-45",
+              )}
+            >
+              <BranchTag branch={branch} taken={decision === branch} />
+              <StepList list={list} listKey={key} ctx={ctx} />
+              {list.length > 0 && <Pipe short />}
+              <AddAtEnd slot={{ list: key, index: list.length }} ctx={ctx} label={list.length === 0 ? `Add a step for “${BRANCH_LABEL[branch]}”` : "Add step"} small />
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-center text-xs text-ink/45">Both paths carry on below</p>
+    </>
+  );
+}
+
+export function BranchTag({ branch, taken = false }: { branch: Branch; taken?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-mono text-[10px] uppercase leading-none ring-1",
+        branch === "yes" ? "bg-accent ring-ink/15" : "bg-white ring-ink/15",
+        taken && "ring-2 ring-ink",
+      )}
+    >
+      If {BRANCH_LABEL[branch].toLowerCase()}
+    </span>
+  );
+}
+
+function AddAtEnd({ slot, ctx, label, small = false }: { slot: Slot; ctx: ListContext; label: string; small?: boolean }) {
+  const { insertAt, onOpenInsert, onInsert } = ctx;
+  if (sameSlot(insertAt, slot)) return <StepPicker onPick={(s) => onInsert(slot, s)} onClose={() => onOpenInsert(null)} />;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenInsert(slot)}
+      className={cn(
+        "mx-auto inline-flex items-center gap-2 rounded-full border border-dashed border-ink/30 bg-white transition-colors hover:border-ink hover:bg-accent",
+        small ? "mt-2 px-4 py-2 text-xs" : "px-5 py-2.5 text-sm",
+      )}
+    >
+      <Plus className="h-4 w-4" strokeWidth={2} />
+      {label}
+    </button>
   );
 }
 
 /* ---------- The pipe between cards, with its insert button and the travelling pulse ---------- */
 
-function Pipe({ segment, open = false, short = false, onAdd }: { segment: number; open?: boolean; short?: boolean; onAdd?: () => void }) {
+function Pipe({ into, open = false, short = false, onAdd }: { into?: string; open?: boolean; short?: boolean; onAdd?: () => void }) {
   return (
-    <div data-segment={segment} className={cn("relative mx-auto w-1.5 rounded-full bg-ink", short ? "h-8" : "h-16")}>
+    <div data-into={into} className={cn("relative mx-auto w-1.5 shrink-0 rounded-full bg-ink", short ? "h-8" : "h-16")}>
       {/* The pulse: no Tailwind transforms on it, GSAP animates `top` only */}
       <span className="js-pulse absolute -left-[3px] top-0 h-3 w-3 rounded-full bg-accent opacity-0 shadow-[0_0_14px_5px_rgba(190,242,100,0.75)]" />
       {onAdd && (
@@ -197,8 +274,9 @@ function TriggerCard({ draft, selected, onSelect }: { draft: Draft; selected: bo
 
 function StepCard({
   step,
-  index,
-  count,
+  number,
+  first,
+  last,
   selected,
   error,
   result,
@@ -208,8 +286,9 @@ function StepCard({
   onRemove,
 }: {
   step: EditorStep;
-  index: number;
-  count: number;
+  number: number;
+  first: boolean;
+  last: boolean;
   selected: boolean;
   error?: string;
   result?: RunStep;
@@ -218,11 +297,10 @@ function StepCard({
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
 }) {
-  const isAi = step.kind === "llm_call";
   const { block, params } = detectBlock(step);
   const Icon = block.icon;
-  const kindLabel = block.key === "custom" ? (isAi ? "AI" : "HTTP") : block.label;
   const isCustom = block.key === "custom";
+  const skipped = result?.status === "skipped";
 
   return (
     <div
@@ -234,17 +312,17 @@ function StepCard({
         "js-rise group cursor-pointer rounded-2xl border bg-white p-4 outline-none transition-[border-color,box-shadow] focus-visible:ring-4 focus-visible:ring-ink/20",
         selected ? "border-ink ring-2 ring-ink" : "border-ink/10 hover:border-ink/30",
         error && !selected && "border-red-300",
-        waiting && "opacity-55",
+        (waiting || skipped) && "opacity-55",
       )}
     >
       <div className="flex items-center gap-4">
-        <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", block.ai || isAi ? "bg-accent" : "bg-mint")}>
+        <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", block.ai || step.kind === "llm_call" ? "bg-accent" : "bg-mint")}>
           <Icon className="h-5 w-5" strokeWidth={1.75} />
         </span>
 
         <div className="min-w-0 flex-1">
           <p className="font-mono text-xs uppercase text-ink/45">
-            Step {index + 1} · {kindLabel}
+            Step {number} · {kindLabel(step)}
           </p>
           <p className="truncate text-lg">{step.name.trim() || "Untitled step"}</p>
           {/* Friendly blocks describe themselves in words; custom steps show the raw request */}
@@ -253,15 +331,15 @@ function StepCard({
 
         {result ? (
           <span className="flex shrink-0 items-center gap-2 font-mono text-xs text-ink/55">
-            {result.finishedAt && formatDuration(new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime())}
+            {skipped ? "skipped" : result.finishedAt && formatDuration(new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime())}
             <StatusIcon status={result.status} className="h-5 w-5" />
           </span>
         ) : (
           <span className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
-            <IconButton label="Move up" disabled={index === 0} onClick={() => onMove(-1)}>
+            <IconButton label="Move up" disabled={first} onClick={() => onMove(-1)}>
               <ChevronUp className="h-4 w-4" strokeWidth={2} />
             </IconButton>
-            <IconButton label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}>
+            <IconButton label="Move down" disabled={last} onClick={() => onMove(1)}>
               <ChevronDown className="h-4 w-4" strokeWidth={2} />
             </IconButton>
             <IconButton label="Remove step" danger onClick={onRemove}>
@@ -278,18 +356,13 @@ function StepCard({
       )}
 
       {result?.error && <PopIn className="mt-3 rounded-xl bg-red-50 px-3 py-2 font-mono text-xs text-red-700">{result.error}</PopIn>}
-      {result && result.output !== undefined && (
+      {result && !skipped && result.output !== undefined && (
         <PopIn className="mt-3 max-h-24 overflow-hidden rounded-xl bg-ink px-3 py-2 font-mono text-xs leading-relaxed text-white/85">
-          {preview(result.output)}
+          {resultText(result)}
         </PopIn>
       )}
     </div>
   );
-}
-
-export function preview(output: unknown) {
-  const text = typeof output === "string" ? output : JSON.stringify(output);
-  return text.length > 220 ? `${text.slice(0, 220)}…` : text;
 }
 
 export function IconButton({ label, disabled, danger, onClick, children }: { label: string; disabled?: boolean; danger?: boolean; onClick: () => void; children: ReactNode }) {

@@ -1,4 +1,4 @@
-import { CloudSun, Code, Globe, Hash, MessageSquare, Newspaper, Sparkles, type LucideIcon } from "lucide-react";
+import { CloudSun, Code, GitFork, Globe, Hash, MessageSquare, Newspaper, Sparkles, type LucideIcon } from "lucide-react";
 import { CREDENTIAL, makeStep, PREVIOUS, TOKEN_PATTERN, type EditorStep } from "./model";
 
 // Friendly building blocks. The backend only has two step types (an HTTP request and an
@@ -25,6 +25,7 @@ export interface Block {
   description: string;
   icon: LucideIcon;
   ai?: boolean;
+  simpleOnly?: boolean; // no "Advanced settings": the friendly form is all there is
   fields: BlockField[];
   create: () => EditorStep;
   read: (step: EditorStep) => Params | null;
@@ -195,8 +196,32 @@ export const custom: Block = {
     step.kind === "llm_call" ? step.prompt.replace(/\s+/g, " ").trim() || "No prompt yet" : `${step.method} ${step.url.trim() || "no URL yet"}`,
 };
 
+/* ---------- If: the AI answers a yes/no question, and the workflow takes that path ---------- */
+
+export const decide: Block = {
+  key: "if",
+  label: "If (AI decides)",
+  description: "Take a Yes or No path",
+  icon: GitFork,
+  ai: true,
+  simpleOnly: true,
+  fields: [
+    {
+      name: "question",
+      label: "Yes or no question",
+      kind: "textarea",
+      placeholder: "e.g. Is any of these stories about AI?",
+      hint: "The AI reads the previous step's output and answers. Yes takes the top path, No the bottom one, then both carry on to the step after.",
+    },
+  ],
+  create: () => makeStep({ kind: "condition", name: "Check", question: "" }),
+  read: (step) => (step.kind === "condition" ? { question: step.question } : null),
+  write: (p) => ({ question: p.question ?? "" }),
+  summary: (p) => p.question.trim() || "No question yet",
+};
+
 // Order matters: specific blocks first, the catch-all last.
-export const BLOCKS: Block[] = [hackerNews, weather, fetchUrl, askAi, slack, discord, custom];
+export const BLOCKS: Block[] = [hackerNews, weather, fetchUrl, askAi, decide, slack, discord, custom];
 
 export function detectBlock(step: EditorStep): { block: Block; params: Params } {
   for (const block of BLOCKS) {

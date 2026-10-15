@@ -1,11 +1,11 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { Link } from "react-router";
-import { ArrowLeft, Clock, Lock, Play, Plus, SlidersHorizontal, Sparkles, Webhook, X } from "lucide-react";
+import { ArrowLeft, Clock, Footprints, Lock, Play, Plus, SlidersHorizontal, Sparkles, Webhook, X } from "lucide-react";
 import type { Credential, Trigger } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { describeCron, WebhookUrl } from "../ui";
 import type { Block, Params } from "./blocks";
-import { CREDENTIAL, hasBody, PREVIOUS, TOKEN_PATTERN, type EditorStep, type Method } from "./model";
+import { CREDENTIAL, hasBody, PREVIOUS, stepToken, TOKEN_PATTERN, type EditorStep, type Method } from "./model";
 
 /* ---------- Shared bits ---------- */
 
@@ -114,43 +114,72 @@ function TokenPreview({ text }: { text: string }) {
   if (!TOKEN_PATTERN.test(text)) return null;
   return (
     <p className="whitespace-pre-wrap break-all rounded-lg bg-paper px-3 py-2 text-xs leading-loose text-ink/70">
-      {text.split(TOKEN_PATTERN).map((part, i) =>
-        part === PREVIOUS ? (
-          <Chip key={i} tone="lime">previous step's output</Chip>
-        ) : part === CREDENTIAL ? (
-          <Chip key={i} tone="ink">credential</Chip>
-        ) : (
-          <span key={i}>{part}</span>
-        ),
-      )}
+      {text.split(TOKEN_PATTERN).map((part, i) => {
+        if (!TOKEN_PATTERN.test(part)) return <span key={i}>{part}</span>;
+        const inside = part.slice(2, -2).trim();
+        if (inside === "credential") return <Chip key={i} tone="ink">credential</Chip>;
+        if (inside.startsWith("steps.")) return <Chip key={i} tone="mint">{inside.slice("steps.".length)}</Chip>;
+        const field = inside.slice("previousOutput".length); // e.g. ".items[0].title", or nothing
+        return <Chip key={i} tone="lime">previous step's output{field && ` ${field}`}</Chip>;
+      })}
     </p>
   );
 }
 
-function Chip({ tone, children }: { tone: "lime" | "ink"; children: ReactNode }) {
+const CHIP_TONE = { lime: "bg-accent text-ink", ink: "bg-ink text-white", mint: "bg-mint text-ink" };
+
+function Chip({ tone, children }: { tone: keyof typeof CHIP_TONE; children: ReactNode }) {
   return (
-    <span className={cn("mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-sans", tone === "lime" ? "bg-accent text-ink" : "bg-ink text-white")}>
+    <span className={cn("mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-sans", CHIP_TONE[tone])}>
       {tone === "ink" && <Lock className="h-3 w-3" strokeWidth={2} />}
+      {tone === "mint" && <Footprints className="h-3 w-3" strokeWidth={2} />}
       {children}
     </span>
   );
 }
 
-function InsertBar({ activeField, withCredential, fallback }: { activeField: RefObject<ActiveField>; withCredential: boolean; fallback: (token: string) => void }) {
+function InsertBar({
+  activeField,
+  withCredential,
+  earlier,
+  fallback,
+}: {
+  activeField: RefObject<ActiveField>;
+  withCredential: boolean;
+  earlier: EditorStep[]; // steps sure to have run before this one
+  fallback: (token: string) => void;
+}) {
   const insert = (token: string) => (activeField.current ? activeField.current.insert(token) : fallback(token));
   // onMouseDown preventDefault keeps focus (and the cursor) in the field being edited.
   const chipButton = "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-transform hover:-translate-y-px";
+  // If steps pass their input straight on, so their "output" would only confuse.
+  const named = earlier.filter((step) => step.kind !== "condition" && step.name.trim());
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-paper p-2.5">
-      <span className="text-xs text-ink/55">Insert into the field you're editing:</span>
-      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(PREVIOUS)} className={cn(chipButton, "bg-accent")}>
-        <Plus className="h-3 w-3" strokeWidth={2.5} /> Previous step's output
-      </button>
-      {withCredential && (
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(CREDENTIAL)} className={cn(chipButton, "bg-ink text-white")}>
-          <Lock className="h-3 w-3" strokeWidth={2} /> Credential
+    <div className="flex flex-col gap-2 rounded-xl bg-paper p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-ink/55">Insert into the field you're editing:</span>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(PREVIOUS)} className={cn(chipButton, "bg-accent")}>
+          <Plus className="h-3 w-3" strokeWidth={2.5} /> Previous step's output
         </button>
+        {withCredential && (
+          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(CREDENTIAL)} className={cn(chipButton, "bg-ink text-white")}>
+            <Lock className="h-3 w-3" strokeWidth={2} /> Credential
+          </button>
+        )}
+      </div>
+      {named.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-ink/55">Or an earlier step's output:</span>
+          {named.map((step) => (
+            <button key={step.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(stepToken(step.name))} className={cn(chipButton, "bg-mint")}>
+              <Footprints className="h-3 w-3" strokeWidth={2} /> {step.name.trim()}
+            </button>
+          ))}
+        </div>
       )}
+      <span className="text-[11px] leading-relaxed text-ink/45">
+        Need one field? Add it inside the braces, e.g. {"{{previousOutput.title}}"} or {"{{previousOutput.items[0]}}"}.
+      </span>
     </div>
   );
 }
@@ -258,7 +287,7 @@ export function TriggerSettings({ trigger, onChange, webhookUrl }: { trigger: Tr
 
 export function FriendlySettings({
   step,
-  index,
+  number,
   block,
   params,
   onChange,
@@ -266,18 +295,18 @@ export function FriendlySettings({
   onAdvanced,
 }: {
   step: EditorStep;
-  index: number;
+  number: number;
   block: Block;
   params: Params;
   onChange: (patch: Partial<EditorStep>) => void;
   credentials: Credential[];
-  onAdvanced: () => void;
+  onAdvanced?: () => void; // not set for blocks that have no advanced form (If)
 }) {
   // Answering a question rewrites the underlying request through the block.
   const answer = (name: string, value: string) => onChange(block.write({ ...params, [name]: value }));
 
   return (
-    <Panel eyebrow={`Step ${index + 1} · ${block.label}`} title={step.name.trim() || "Untitled step"}>
+    <Panel eyebrow={`Step ${number} · ${block.label}`} title={step.name.trim() || "Untitled step"}>
       <Field label="Step name">
         <input value={step.name} onChange={(e) => onChange({ name: e.target.value })} className={inputClass} />
       </Field>
@@ -322,9 +351,11 @@ export function FriendlySettings({
           </Field>
         ))}
 
-      <button type="button" onClick={onAdvanced} className="inline-flex w-fit items-center gap-1.5 text-sm text-ink/55 underline decoration-ink/20 underline-offset-4 hover:text-ink">
-        <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={1.75} /> Advanced settings
-      </button>
+      {onAdvanced && (
+        <button type="button" onClick={onAdvanced} className="inline-flex w-fit items-center gap-1.5 text-sm text-ink/55 underline decoration-ink/20 underline-offset-4 hover:text-ink">
+          <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={1.75} /> Advanced settings
+        </button>
+      )}
     </Panel>
   );
 }
@@ -346,13 +377,15 @@ const METHODS: Method[] = ["GET", "POST", "PUT", "DELETE"];
 
 export function StepSettings({
   step,
-  index,
+  number,
+  earlier,
   onChange,
   credentials,
   onSimple,
 }: {
   step: EditorStep;
-  index: number;
+  number: number;
+  earlier: EditorStep[]; // steps sure to have run before this one, for the output chips
   onChange: (patch: Partial<EditorStep>) => void;
   credentials: Credential[];
   onSimple?: () => void; // set when this step can also be shown as a friendly block
@@ -375,9 +408,9 @@ export function StepSettings({
 
   if (isAi) {
     return (
-      <Panel eyebrow={`Step ${index + 1} · AI`} title={step.name.trim() || "Untitled step"}>
+      <Panel eyebrow={`Step ${number} · AI`} title={step.name.trim() || "Untitled step"}>
         {nameField}
-        <InsertBar activeField={activeField} withCredential={false} fallback={(t) => onChange({ prompt: step.prompt + t })} />
+        <InsertBar activeField={activeField} withCredential={false} earlier={earlier} fallback={(t) => onChange({ prompt: step.prompt + t })} />
         <Field label="Prompt" hint="The AI only sees what you write here. Drop in the previous step's output where it should read it.">
           <TokenInput value={step.prompt} onChange={(prompt) => onChange({ prompt })} activeField={activeField} multiline rows={7} />
         </Field>
@@ -392,7 +425,7 @@ export function StepSettings({
   }
 
   return (
-    <Panel eyebrow={`Step ${index + 1} · HTTP request`} title={step.name.trim() || "Untitled step"}>
+    <Panel eyebrow={`Step ${number} · HTTP request`} title={step.name.trim() || "Untitled step"}>
       {nameField}
 
       <Field label="Method">
@@ -410,7 +443,7 @@ export function StepSettings({
         </div>
       </Field>
 
-      <InsertBar activeField={activeField} withCredential fallback={(t) => onChange({ url: step.url + t })} />
+      <InsertBar activeField={activeField} withCredential earlier={earlier} fallback={(t) => onChange({ url: step.url + t })} />
 
       <Field label="URL">
         <TokenInput value={step.url} onChange={(url) => onChange({ url })} activeField={activeField} placeholder="https://api.example.com/data" mono />

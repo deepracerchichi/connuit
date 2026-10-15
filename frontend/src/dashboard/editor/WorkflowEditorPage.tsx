@@ -9,7 +9,24 @@ import { cn } from "../../lib/cn";
 import { errorMessage, useApi } from "../useApi";
 import { actionClass, ErrorState, runDuration, useMediaQuery, useRise } from "../ui";
 import { detectBlock } from "./blocks";
-import { emptyDraft, fromWorkflow, toPayload, uniqueName, validate, type Draft, type EditorStep, type Problems } from "./model";
+import {
+  allSteps,
+  changeList,
+  changeStep,
+  earlierSteps,
+  emptyDraft,
+  findStep,
+  fromWorkflow,
+  locate,
+  ROOT,
+  toPayload,
+  uniqueName,
+  validate,
+  type Draft,
+  type EditorStep,
+  type Problems,
+  type Slot,
+} from "./model";
 import Canvas from "./Canvas";
 import Pipeline from "./Pipeline";
 import { FriendlySettings, StepSettings, TriggerSettings } from "./Settings";
@@ -29,7 +46,7 @@ export default function WorkflowEditorPage() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(start?.selected ?? null); // what the inspector shows; null = closed
-  const [insertAt, setInsertAt] = useState<number | null>(start?.insertAt ?? null);
+  const [insertAt, setInsertAt] = useState<Slot | null>(start?.insertAt ?? null);
   const [problems, setProblems] = useState<Problems | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -49,6 +66,12 @@ export default function WorkflowEditorPage() {
       .then((loaded) => {
         if (cancelled) return;
         const loadedDraft = fromWorkflow(loaded);
+        if (!loadedDraft) {
+          setLoadError(
+            "This workflow has a shape the editor can't draw yet (for example, steps running side by side without an If). It still runs as saved; change it through the API.",
+          );
+          return;
+        }
         setWorkflow(loaded);
         setDraft(loadedDraft);
         setSavedCopy(JSON.stringify(loadedDraft));
@@ -102,7 +125,7 @@ export default function WorkflowEditorPage() {
 
   const edit = (change: (d: Draft) => Draft) => setDraft((d) => (d ? change(d) : d));
   const editStep = (stepId: string, patch: Partial<EditorStep>) => {
-    edit((d) => ({ ...d, steps: d.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)) }));
+    edit((d) => ({ ...d, steps: changeStep(d.steps, stepId, patch) }));
     // Editing a step clears its error message; the next save checks it again.
     setProblems((p) => {
       if (!p?.steps[stepId]) return p;
@@ -114,26 +137,41 @@ export default function WorkflowEditorPage() {
     });
   };
 
-  function insertStep(index: number, step: EditorStep) {
+  // Steps live in lists (the main line, or an If's Yes/No path); a slot says which list and where.
+  function insertStep(slot: Slot, step: EditorStep) {
     edit((d) => {
       const named = { ...step, name: uniqueName(step.name, d.steps) };
-      return { ...d, steps: [...d.steps.slice(0, index), named, ...d.steps.slice(index)] };
+      return { ...d, steps: changeList(d.steps, slot.list, (list) => [...list.slice(0, slot.index), named, ...list.slice(slot.index)]) };
     });
     setSelected(step.id);
     setInsertAt(null);
   }
 
-  function moveStep(index: number, direction: -1 | 1) {
+  // Moves a step along its own list (an If takes its paths with it).
+  function moveStep(stepId: string, direction: -1 | 1) {
     edit((d) => {
-      const steps = [...d.steps];
-      [steps[index], steps[index + direction]] = [steps[index + direction], steps[index]];
-      return { ...d, steps };
+      const at = locate(d.steps, stepId);
+      if (!at) return d;
+      return {
+        ...d,
+        steps: changeList(d.steps, at.list, (list) => {
+          const next = [...list];
+          [next[at.index], next[at.index + direction]] = [next[at.index + direction], next[at.index]];
+          return next;
+        }),
+      };
     });
   }
 
-  function removeStep(index: number) {
-    if (draft!.steps[index]?.id === selected) setSelected(null);
-    edit((d) => ({ ...d, steps: d.steps.filter((_, i) => i !== index) }));
+  function removeStep(stepId: string) {
+    const step = findStep(draft!.steps, stepId);
+    const at = locate(draft!.steps, stepId);
+    if (!step || !at) return;
+    // Removing an If removes everything on its paths too, so check first.
+    const inside = allSteps([...step.yes, ...step.no]);
+    if (inside.length > 0 && !window.confirm(`Remove “${step.name.trim() || "this If"}” and the ${inside.length} ${inside.length === 1 ? "step" : "steps"} on its paths?`)) return;
+    if (selected && allSteps([step]).some((s) => s.id === selected)) setSelected(null);
+    edit((d) => ({ ...d, steps: changeList(d.steps, at.list, (list) => list.filter((s) => s.id !== stepId)) }));
   }
 
   /* ---------- Saving, testing, deleting ---------- */
@@ -143,7 +181,7 @@ export default function WorkflowEditorPage() {
     const found = validate(draft);
     setProblems(found);
     if (found) {
-      const firstBadStep = draft.steps.find((s) => found.steps[s.id]);
+      const firstBadStep = allSteps(draft.steps).find((s) => found.steps[s.id]);
       if (firstBadStep) setSelected(firstBadStep.id);
       return null;
     }
@@ -188,15 +226,17 @@ export default function WorkflowEditorPage() {
 
   const testing = test.phase === "queued" || test.phase === "running" || test.phase === "retrying";
   const webhookUrl = workflow?.webhookToken && draft.trigger.type === "webhook" ? `${API_URL}/webhooks/${workflow.webhookToken}` : null;
-  const selectedIndex = draft.steps.findIndex((s) => s.id === selected);
+  const everyStep = allSteps(draft.steps);
+  const selectedStep = everyStep.find((s) => s.id === selected);
 
   const renderSettings = (key: string) => {
     if (key === "trigger") {
       return <TriggerSettings trigger={draft.trigger} onChange={(trigger) => edit((d) => ({ ...d, trigger }))} webhookUrl={webhookUrl} />;
     }
-    const index = draft.steps.findIndex((s) => s.id === key);
+    const index = everyStep.findIndex((s) => s.id === key);
     if (index < 0) return null;
-    const step = draft.steps[index];
+    const step = everyStep[index];
+    const number = index + 1;
     const { block, params } = detectBlock(step);
     const friendly = block.key !== "custom";
     const setAdvancedFor = (on: boolean) =>
@@ -208,17 +248,17 @@ export default function WorkflowEditorPage() {
       });
 
     // Friendly blocks get a few plain questions; "Advanced settings" shows the full request.
-    if (friendly && !advanced.has(key)) {
+    if (block.simpleOnly || (friendly && !advanced.has(key))) {
       return (
         <FriendlySettings
           key={key}
           step={step}
-          index={index}
+          number={number}
           block={block}
           params={params}
           onChange={(patch) => editStep(key, patch)}
           credentials={credentials.data ?? []}
-          onAdvanced={() => setAdvancedFor(true)}
+          onAdvanced={block.simpleOnly ? undefined : () => setAdvancedFor(true)}
         />
       );
     }
@@ -226,7 +266,8 @@ export default function WorkflowEditorPage() {
       <StepSettings
         key={key}
         step={step}
-        index={index}
+        number={number}
+        earlier={earlierSteps(draft.steps, key)}
         onChange={(patch) => editStep(key, patch)}
         credentials={credentials.data ?? []}
         onSimple={friendly ? () => setAdvancedFor(false) : undefined}
@@ -234,7 +275,7 @@ export default function WorkflowEditorPage() {
     );
   };
 
-  const inspectorOpen = selected === "trigger" || selectedIndex >= 0;
+  const inspectorOpen = selected === "trigger" || selectedStep !== undefined;
   const statusText = saving ? "Saving…" : dirty ? "Unsaved changes" : isNew ? "Not saved yet" : "All changes saved";
   const hasBanner = Boolean(problems?.general || saveError || test.phase !== "idle");
   const banners = (
@@ -465,12 +506,12 @@ function TestBanner({
 
 function startingPoint(templateKey: string | undefined) {
   if (templateKey === "scratch") {
-    return { draft: emptyDraft(), selected: null, insertAt: 0 }; // empty pipe, step picker open
+    return { draft: emptyDraft(), selected: null, insertAt: { list: ROOT, index: 0 } }; // empty pipe, step picker open
   }
   const template = TEMPLATES.find((t) => t.key === templateKey);
   if (!template) return null;
   const draft = template.build();
   // Templates usually need one thing from you (a Slack channel): open that step.
-  const needsSetup = draft.steps.find((s) => s.url === "{{credential}}" && !s.credentialId);
+  const needsSetup = allSteps(draft.steps).find((s) => s.url === "{{credential}}" && !s.credentialId);
   return { draft, selected: needsSetup?.id ?? null, insertAt: null };
 }
