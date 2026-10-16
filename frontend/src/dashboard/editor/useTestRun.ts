@@ -75,7 +75,7 @@ export function useTestRun() {
 
         if (latest.status === "failed") {
           failedAt ??= Date.now();
-          if (attemptNumber >= MAX_ATTEMPTS || Date.now() - failedAt > GAVE_UP_AFTER_MS) {
+          if (latest.final || attemptNumber >= MAX_ATTEMPTS || Date.now() - failedAt > GAVE_UP_AFTER_MS) {
             setPhase("failed");
             return;
           }

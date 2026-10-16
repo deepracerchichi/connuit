@@ -1,3 +1,4 @@
+import { UnrecoverableError } from "bullmq";
 import type { Workflow } from "../domain/workflow.js";
 import { WorkflowModel } from "../model/workflowSchema.js";
 import { RunModel } from "../model/runSchema.js";
@@ -24,20 +25,22 @@ export async function triggerRun(userId: string, workflowId: string, runId: stri
   const credentialValues = await resolveCredentials(workflow, userId);
   await RunModel.findByIdAndUpdate(
     runId,
-    { workflowId: workflow.id, status: "running", steps: [] },
+    { workflowId: workflow.id, status: "running", steps: [], final: false },
     { upsert: true }
   );
 
   const run = await runWorkflow(workflow, runId, credentialValues, input);
 
-    await RunModel.findByIdAndUpdate(runId, { status: run.status, steps: run.steps });
+    await RunModel.findByIdAndUpdate(runId, { status: run.status, steps: run.steps, final: run.retryable === false });
 
   // Throwing is how BullMQ knows this attempt failed: it retries with backoff,
   // and after the last attempt the worker's "failed" handler marks the run failed.
   // The failed step is already saved above, so the dashboard can show what broke.
+  // UnrecoverableError skips the retries when they can't help (e.g. the daily AI limit).
   if (run.status === "failed") {
     const failedStep = run.steps.find((step) => step.status === "failed");
-    throw new Error(failedStep?.error ?? "Workflow run failed");
+    const message = failedStep?.error ?? "Workflow run failed";
+    throw run.retryable === false ? new UnrecoverableError(message) : new Error(message);
   }
 
   return run;

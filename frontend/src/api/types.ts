@@ -61,11 +61,19 @@ export interface Run {
   workflowId: string;
   status: RunStatus;
   steps: RunStep[];
+  final?: boolean; // a failed run that won't be retried (last attempt, or the daily AI limit)
   createdAt: string;
   updatedAt: string;
 }
 
 export type RunWithWorkflow = Run & { workflowName: string };
+
+// GET /usage: today's AI calls (AI steps and If steps) against the daily allowance.
+export interface Usage {
+  aiCalls: number;
+  limit: number;
+  resetsAt: string; // next midnight UTC
+}
 
 export interface Credential {
   id: string;

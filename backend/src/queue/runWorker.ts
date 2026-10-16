@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { UnrecoverableError, Worker } from "bullmq";
 import { redisConnection } from "./connection.js";
 import { triggerRun } from "../services/runService.js";
 import type { RunJobData } from "./runQueue.js";
@@ -24,14 +24,15 @@ runWorker.on("failed", (job, error) => {
   if (!job) return;
 
   // BullMQ fires "failed" on every failed attempt, not just the last one.
+  // An UnrecoverableError (e.g. the daily AI limit) is final whatever the attempt count.
   const maxAttempts = job.opts.attempts ?? 1;
-  if (job.attemptsMade < maxAttempts) {
+  if (job.attemptsMade < maxAttempts && !(error instanceof UnrecoverableError)) {
     console.warn(`Job ${job.id}: attempt ${job.attemptsMade}/${maxAttempts} failed, retrying: ${error.message}`);
     return;
   }
 
   console.error(`Job ${job.id} failed permanently after ${job.attemptsMade} attempts:`, error.message);
-  RunModel.findByIdAndUpdate(job.data.runId, { status: "failed" }).catch((updateError) => {
+  RunModel.findByIdAndUpdate(job.data.runId, { status: "failed", final: true }).catch((updateError) => {
     console.error(`Failed to mark run ${job.data.runId} as failed:`, updateError);
   });
 });

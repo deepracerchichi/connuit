@@ -27,6 +27,9 @@ const runSchema = new mongoose.Schema({
         required: true,
     },
     steps: {type: [stepSchema], default: []},
+    // True once a failed run won't be tried again (the last attempt, or the daily AI limit),
+    // so the editor can show the result right away instead of waiting for a retry.
+    final: {type: Boolean, default: false},
 
 }, {timestamps: true}
 );

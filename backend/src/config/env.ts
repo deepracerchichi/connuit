@@ -12,6 +12,8 @@ const envSchema = z.object({
   FRONTEND_URL: z.url().default("http://localhost:5173"),
   GEMINI_API_KEY: z.string().min(1),
   LLM_MODEL: z.string().default("gemini-3.5-flash-lite"),
+  AI_CALLS_PER_USER_PER_DAY: z.coerce.number().int().positive().default(50),
+  AI_CALLS_PER_DAY_TOTAL: z.coerce.number().int().positive().default(450), // stays under Gemini's free daily limit
 });
 
 const parsed = envSchema.safeParse(process.env);

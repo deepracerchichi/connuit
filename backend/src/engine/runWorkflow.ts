@@ -3,6 +3,7 @@ import type { Run, Step } from "../domain/run.js";
 import { findStartNodes, incomingEdges, topologicalOrder } from "./graph.js";
 import { executeNode } from "./execute.js";
 import { decide } from "./decide.js";
+import { reserveAiCall, UsageLimitError } from "../services/usageService.js";
 
 export async function runWorkflow(
   workflow: Workflow,
@@ -49,6 +50,11 @@ export async function runWorkflow(
     run.steps.push(step);
 
     try {
+      // AI steps and If steps call the AI: count it first, and stop here if today's allowance is used up.
+      if (node.config.type === "llm_call" || node.config.type === "condition") {
+        await reserveAiCall(workflow.userId);
+      }
+
       if (node.config.type === "condition") {
         const decision = await decide(node.config.question, stepInput);
         decisions.set(node.id, decision);
@@ -69,6 +75,7 @@ export async function runWorkflow(
       step.finishedAt = new Date();
       step.error = error instanceof Error ? error.message : String(error);
       run.status = "failed";
+      if (error instanceof UsageLimitError) run.retryable = false; // it would only fail the same way
       return run;
     }
   }
