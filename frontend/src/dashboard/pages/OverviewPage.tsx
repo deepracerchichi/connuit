@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 import { ArrowRight, History } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { useActivity } from "../useApi";
+import type { Usage } from "../../api/types";
+import { useActivity, useApi } from "../useApi";
 import { RunRow } from "../RunRow";
 import { ActionChip, actionChipClass, EmptyState, ErrorState, isToday, LoadingBlock, PageHeader, useRise } from "../ui";
 
@@ -14,6 +15,7 @@ function greeting() {
 
 export default function OverviewPage() {
   const { data, error, loading, reload } = useActivity();
+  const usage = useApi<Usage>("/usage"); // optional extra: if it fails, the card just doesn't show
   const ref = useRise<HTMLDivElement>(!loading);
 
   const workflows = data?.workflows ?? [];
@@ -64,6 +66,8 @@ export default function OverviewPage() {
               ))}
             </div>
 
+            {usage.data && <UsageCard usage={usage.data} />}
+
             <section className="mt-12">
               <div className="js-rise flex items-center justify-between">
                 <h2 className="text-2xl tracking-tight">Recent runs</h2>
@@ -98,6 +102,55 @@ export default function OverviewPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Today's AI calls against the daily allowance, so running out is never a surprise.
+function UsageCard({ usage }: { usage: Usage }) {
+  const share = usage.limit > 0 ? Math.min(usage.aiCalls / usage.limit, 1) : 1;
+  const used = usage.aiCalls >= usage.limit;
+  const low = !used && share >= 0.8;
+  // Midnight UTC, shown in the user's own time zone
+  const resetTime = new Date(usage.resetsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <div className="js-rise mt-3 rounded-2xl border border-ink/10 bg-white p-5 md:p-6 lg:mt-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="font-mono text-xs uppercase text-ink/55">AI calls today</p>
+          <p className="mt-3 text-4xl tracking-tight md:text-5xl">
+            {usage.aiCalls}
+            <span className="text-2xl text-ink/35 md:text-3xl"> / {usage.limit}</span>
+          </p>
+        </div>
+        <p className="text-sm text-ink/55">
+          Resets at {resetTime} your time
+        </p>
+      </div>
+
+      <div
+        className="mt-5 h-3 overflow-hidden rounded-full bg-ink/5"
+        role="progressbar"
+        aria-label="AI calls used today"
+        aria-valuenow={usage.aiCalls}
+        aria-valuemin={0}
+        aria-valuemax={usage.limit}
+      >
+        {/* Only the width animates (CSS); GSAP never touches this bar */}
+        <div
+          className={cn("h-full rounded-full transition-[width] duration-700", used ? "bg-red-500" : low ? "bg-amber-400" : "bg-accent")}
+          style={{ width: `${share * 100}%` }}
+        />
+      </div>
+
+      <p className={cn("mt-3 text-sm", used ? "text-red-700" : "text-ink/55")}>
+        {used
+          ? "All used. AI and If steps will fail until the reset; every other step keeps running."
+          : low
+            ? "Running low. When they're gone, AI and If steps fail until the reset."
+            : "Every AI step and every If step uses one call."}
+      </p>
     </div>
   );
 }

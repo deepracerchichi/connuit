@@ -23,5 +23,6 @@ export interface Run {
   workflowId: string;
   status: RunStatus;
   steps: Step[];
+  retryable?: boolean; // false when trying again can't help (e.g. the daily AI limit); not saved
 }
 
