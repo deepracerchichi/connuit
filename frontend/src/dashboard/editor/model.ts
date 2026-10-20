@@ -44,8 +44,23 @@ export interface Draft {
 export const PREVIOUS = "{{previousOutput}}";
 export const CREDENTIAL = "{{credential}}";
 export const stepToken = (name: string) => `{{steps.${name.trim()}}}`;
-// One whole placeholder, e.g. {{previousOutput}}, {{previousOutput.items[0]}}, {{steps.Get news.title}}.
-export const TOKEN_PATTERN = /(\{\{\s*(?:previousOutput(?:[.[][^{}]*)?|credential|steps\.[^{}]+?)\s*\}\})/;
+export const TRIGGER = "{{trigger}}"; // what started the run (a webhook's JSON, a Telegram message), usable in any step
+// What a Telegram message looks like to a workflow (see backend routes/webhooks.ts): the default test sample.
+export const TELEGRAM_SAMPLE = JSON.stringify({ text: "Hi! What can you do?", chatId: "123456789", from: "you" }, null, 2);
+// One whole placeholder, e.g. {{previousOutput}}, {{previousOutput.items[0]}}, {{trigger.chatId}}, {{steps.Get news.title}}.
+export const TOKEN_PATTERN = /(\{\{\s*(?:previousOutput(?:[.[][^{}]*)?|trigger(?:[.[][^{}]*)?|credential|steps\.[^{}]+?)\s*\}\})/;
+
+// Triggers that hand the run some data: only these have anything in {{trigger}}.
+export const triggerHasData = (trigger: Trigger) => trigger.type === "webhook" || trigger.type === "telegram";
+
+const isJson = (text: string) => {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export const hasBody = (method: Method) => method === "POST" || method === "PUT";
 
@@ -408,7 +423,14 @@ function connect(list: EditorStep[], entries: Exit[], edges: WorkflowEdge[]): Ex
 export function toPayload(draft: Draft) {
   const edges: WorkflowEdge[] = [];
   connect(draft.steps, [], edges);
-  return { name: draft.name.trim(), trigger: draft.trigger, nodes: runnable(draft.steps).map(toNode), edges };
+  return { name: draft.name.trim(), trigger: cleanTrigger(draft.trigger), nodes: runnable(draft.steps).map(toNode), edges };
+}
+
+// An empty sample means "no sample": leave it out rather than send text that isn't JSON.
+function cleanTrigger(trigger: Trigger): Trigger {
+  if (trigger.type === "webhook" && !trigger.sample?.trim()) return { type: "webhook" };
+  if (trigger.type === "telegram" && !trigger.sample?.trim()) return { type: "telegram", credentialId: trigger.credentialId };
+  return trigger;
 }
 
 /* ---------- Validation: catch problems here, with messages a person can act on ---------- */
@@ -502,6 +524,7 @@ export function validate(draft: Draft): Problems | null {
   else if (draft.steps.length === 0) general = "Add at least one step.";
   else if (draft.trigger.type === "cron" && !draft.trigger.schedule.trim()) general = "Choose when it should run.";
   else if (draft.trigger.type === "telegram" && !draft.trigger.credentialId) general = "Pick the Telegram bot that starts this workflow.";
+  else if (triggerHasData(draft.trigger) && draft.trigger.sample?.trim() && !isJson(draft.trigger.sample)) general = "The trigger's sample data isn't valid JSON.";
   else if (Object.keys(steps).length > 0) general = "Some steps need attention.";
 
   return general || Object.keys(steps).length > 0 ? { general, steps } : null;

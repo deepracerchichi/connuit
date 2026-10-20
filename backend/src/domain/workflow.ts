@@ -61,8 +61,8 @@ export interface Workflow {
 
 export type Trigger =
   | { type: "manual" }
-  | { type: "webhook" }
+  | { type: "webhook"; sample?: string } // sample: JSON that test runs use in place of a real call
   | { type: "cron"; schedule: string }
-  | { type: "telegram"; credentialId: string }; // a message to this bot (its token is the credential) starts a run
+  | { type: "telegram"; credentialId: string; sample?: string }; // a message to this bot (its token is the credential) starts a run
 
 

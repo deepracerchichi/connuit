@@ -3,7 +3,7 @@ import type { WorkflowNode } from "../domain/workflow.js";
 import { interpolate, interpolateDeep } from "./interpolate.js";
 
 
-export async function executeNode(node: WorkflowNode, credentialValues: Map<string, string>, previousOutput: unknown, steps: Map<string, unknown>): Promise<unknown> {
+export async function executeNode(node: WorkflowNode, credentialValues: Map<string, string>, previousOutput: unknown, steps: Map<string, unknown>, trigger?: unknown): Promise<unknown> {
 
     switch (node.config.type) {
         case "http_request":{
@@ -13,7 +13,7 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
 
 
             // Everything a {{placeholder}} in this step can refer to.
-            const ctx = { previousOutput, credential: credentialValue, steps };
+            const ctx = { previousOutput, credential: credentialValue, steps, trigger };
 
             const url = interpolate(node.config.url, ctx);
             const body = node.config.body !== undefined ? interpolateDeep(node.config.body, ctx) : undefined;
@@ -47,7 +47,7 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
          }
         
         case "llm_call": {
-            const prompt = interpolate(node.config.prompt, { previousOutput, steps });
+            const prompt = interpolate(node.config.prompt, { previousOutput, steps, trigger });
 
             return await callLlm(prompt, node.config.systemPrompt);
         }
@@ -55,7 +55,7 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
             const token = credentialValues.get(node.config.credentialId);
             if (!token) throw new Error("Telegram step needs a bot token credential.");
 
-            const ctx = { previousOutput, steps };
+            const ctx = { previousOutput, steps, trigger };
             const chatId = interpolate(node.config.chatId, ctx);
             const text = interpolate(node.config.text, ctx);
 

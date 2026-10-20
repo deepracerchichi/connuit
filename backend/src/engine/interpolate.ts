@@ -3,6 +3,7 @@
 //   {{previousOutput}}                  the previous step's whole output
 //   {{previousOutput.customer.email}}   a field inside it (also [0] for list items)
 //   {{steps.Get news.headline}}         any earlier step that ran, by name, and fields inside it
+//   {{trigger.chatId}}                  what started the run (a webhook's JSON, a Telegram message), from any step
 //   {{credential}}                      this step's decrypted credential
 //
 // Anything else inside {{ }} is left as it is, so other services' own templates don't break.
@@ -11,6 +12,7 @@ export interface TemplateContext {
   previousOutput: unknown;
   credential?: string;
   steps: Map<string, unknown>; // step name -> output, for steps that ran before this one
+  trigger?: unknown; // the data that started the run; undefined for manual and scheduled runs
 }
 
 const PLACEHOLDER = /\{\{\s*([^{}]+?)\s*\}\}/g;
@@ -33,6 +35,13 @@ function resolve(expression: string, ctx: TemplateContext): unknown {
 
   if (expression === "previousOutput" || /^previousOutput[.[]/.test(expression)) {
     return getPath(ctx.previousOutput, expression.slice("previousOutput".length), "previousOutput");
+  }
+
+  if (expression === "trigger" || /^trigger[.[]/.test(expression)) {
+    if (ctx.trigger === undefined) {
+      throw new Error("{{trigger}} only has data when a webhook or a Telegram message starts the run.");
+    }
+    return getPath(ctx.trigger, expression.slice("trigger".length), "trigger");
   }
 
   if (expression.startsWith("steps.")) {

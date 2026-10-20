@@ -3,9 +3,9 @@
 
 export type Trigger =
   | { type: "manual" }
-  | { type: "webhook" }
+  | { type: "webhook"; sample?: string } // sample: JSON test runs use in place of a real call
   | { type: "cron"; schedule: string }
-  | { type: "telegram"; credentialId: string }; // a message to this bot starts a run (its token is the credential)
+  | { type: "telegram"; credentialId: string; sample?: string }; // a message to this bot starts a run (its token is the credential)
 
 export type NodeConfig =
   | {
