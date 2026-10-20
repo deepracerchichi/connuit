@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, GitFork, Globe, Pencil, Play, Plus, Sparkles, Workflow as WorkflowIcon } from "lucide-react";
+import { ArrowRight, GitFork, Globe, Pencil, Play, Plus, Send, Sparkles, Workflow as WorkflowIcon } from "lucide-react";
 import { API_URL, apiFetch, ApiError } from "../../api/client";
 import type { Run, RunStatus, RunWithWorkflow, Workflow } from "../../api/types";
 import { errorMessage, useActivity } from "../useApi";
@@ -89,6 +89,8 @@ function WorkflowCard({ workflow, lastRun, onRunFinished }: { workflow: Workflow
                 <span className="flex h-5 w-5 items-center justify-center rounded bg-ink text-accent">
                   <GitFork className="h-3 w-3" strokeWidth={2} />
                 </span>
+              ) : node.config.type === "telegram_message" ? (
+                <Send className="h-3.5 w-3.5 text-ink/50" strokeWidth={1.75} />
               ) : (
                 <Globe className="h-3.5 w-3.5 text-ink/50" strokeWidth={1.75} />
               )}

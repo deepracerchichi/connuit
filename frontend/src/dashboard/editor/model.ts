@@ -6,7 +6,7 @@ import type { Branch, NodeConfig, Trigger, Workflow, WorkflowEdge, WorkflowNode 
 // After either, the paths join back into the list they sit in, so the next step carries on
 // from whichever ran. The API stores nodes plus edges, so these helpers convert between the two.
 
-export type StepKind = "http_request" | "llm_call" | "condition" | "split";
+export type StepKind = "http_request" | "llm_call" | "condition" | "telegram_message" | "split";
 export type Method = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface HeaderRow {
@@ -26,6 +26,8 @@ export interface EditorStep {
   prompt: string;
   systemPrompt: string;
   question: string; // If steps: what the AI answers yes or no to
+  chatId: string; // Telegram steps: who gets the message
+  text: string; // Telegram steps: the message itself
   yes: EditorStep[]; // If steps: the path taken on "yes" (always empty for other steps)
   no: EditorStep[];
   lanes: EditorStep[][]; // splits: the paths that each get the previous step's output
@@ -58,6 +60,8 @@ export function makeStep(fields: Partial<EditorStep> & Pick<EditorStep, "kind" |
     prompt: "",
     systemPrompt: "",
     question: "",
+    chatId: "",
+    text: "",
     yes: [],
     no: [],
     lanes: [],
@@ -91,6 +95,13 @@ export const sameSlot = (a: Slot | null, b: Slot) => a !== null && a.list === b.
 
 export const MAX_OUTLETS = 3;
 
+// A list that ends in paths (an If's, or a step's branches). Each path then simply ends; adding
+// a step after them would join them, so the editor only does that when asked ("Join paths").
+export function endsInFork(list: EditorStep[]) {
+  const last = list[list.length - 1];
+  return last !== undefined && (last.kind === "condition" || last.kind === "split");
+}
+
 // A step has an outlet on top and one underneath: the new branch goes above or below the others.
 export type Side = "top" | "bottom";
 
@@ -113,7 +124,7 @@ export function outletCount(list: EditorStep[], index: number) {
 export function canBranch(list: EditorStep[], index: number) {
   const step = list[index];
   const outlets = outletCount(list, index);
-  return (step.kind === "http_request" || step.kind === "llm_call") && outlets >= 1 && outlets < MAX_OUTLETS;
+  return (step.kind === "http_request" || step.kind === "llm_call" || step.kind === "telegram_message") && outlets >= 1 && outlets < MAX_OUTLETS;
 }
 
 // Adds `step` as a new branch of the step at `index`, above or below the existing ones. The
@@ -250,6 +261,9 @@ function toStep(node: WorkflowNode): EditorStep {
   if (config.type === "condition") {
     return makeStep({ id: node.id, kind: "condition", name: node.name, question: config.question });
   }
+  if (config.type === "telegram_message") {
+    return makeStep({ id: node.id, kind: "telegram_message", name: node.name, credentialId: config.credentialId, chatId: config.chatId, text: config.text });
+  }
   return makeStep({
     id: node.id,
     kind: "http_request",
@@ -351,6 +365,9 @@ function toNode(step: EditorStep): WorkflowNode {
   }
   if (step.kind === "condition") {
     return { id: step.id, name, config: { type: "condition", question: step.question.trim() } };
+  }
+  if (step.kind === "telegram_message") {
+    return { id: step.id, name, config: { type: "telegram_message", credentialId: step.credentialId, chatId: step.chatId.trim(), text: step.text } };
   }
   const headers = Object.fromEntries(step.headers.filter((h) => h.key.trim()).map((h) => [h.key.trim(), h.value]));
   const config: NodeConfig = {
@@ -463,6 +480,10 @@ export function validate(draft: Draft): Problems | null {
     else if (step.kind === "condition") {
       if (!step.question.trim()) steps[step.id] = "Write the yes/no question the AI should answer.";
       else if (step.yes.length === 0 && step.no.length === 0) steps[step.id] = "Add a step to the Yes or the No path.";
+    } else if (step.kind === "telegram_message") {
+      if (!step.credentialId) steps[step.id] = "Pick the Telegram bot to send from.";
+      else if (!step.chatId.trim()) steps[step.id] = "Enter the chat ID to send to.";
+      else if (!step.text.trim()) steps[step.id] = "Write the message to send.";
     } else if (step.kind === "http_request") {
       if (!isUrlOrPlaceholder(step.url.trim())) steps[step.id] = "Enter a full URL, like https://api.example.com/data.";
       else if (usesCredential(step) && !step.credentialId) steps[step.id] = "Pick a credential: this step uses one.";
@@ -480,6 +501,7 @@ export function validate(draft: Draft): Problems | null {
   if (!draft.name.trim()) general = "Give your workflow a name.";
   else if (draft.steps.length === 0) general = "Add at least one step.";
   else if (draft.trigger.type === "cron" && !draft.trigger.schedule.trim()) general = "Choose when it should run.";
+  else if (draft.trigger.type === "telegram" && !draft.trigger.credentialId) general = "Pick the Telegram bot that starts this workflow.";
   else if (Object.keys(steps).length > 0) general = "Some steps need attention.";
 
   return general || Object.keys(steps).length > 0 ? { general, steps } : null;

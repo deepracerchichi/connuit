@@ -7,7 +7,7 @@ import { cn } from "../../lib/cn";
 import { errorMessage, useApi } from "../useApi";
 import { ActionChip, actionChipClass, actionClass, EmptyState, ErrorState, LoadingBlock, PageHeader, timeAgo, useRise } from "../ui";
 
-const PROVIDERS = ["Slack", "OpenAI", "GitHub", "Discord", "Other"];
+const PROVIDERS = ["Slack", "Discord", "Telegram", "OpenAI", "GitHub", "Other"];
 
 export default function CredentialsPage() {
   const { data, error, loading, reload } = useApi<Credential[]>("/credentials");
@@ -180,7 +180,14 @@ function AddCredentialModal({ onClose, onSaved }: { onClose: () => void; onSaved
 
         <div className="mt-5 flex flex-col gap-3">
           <FloatingField id="cred-name" label="Name, e.g. Team Slack" type="text" autoComplete="off" value={name} onChange={setName} />
-          <FloatingField id="cred-value" label="API key or webhook URL" type="password" autoComplete="off" value={value} onChange={setValue} />
+          <FloatingField
+            id="cred-value"
+            label={provider === "Telegram" ? "Bot token from @BotFather" : "API key or webhook URL"}
+            type="password"
+            autoComplete="off"
+            value={value}
+            onChange={setValue}
+          />
         </div>
 
         <p className="mt-4 flex items-start gap-2 text-sm text-ink/55">

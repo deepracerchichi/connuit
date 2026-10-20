@@ -1,4 +1,14 @@
-export const API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
+// The backend's address. Forgiving about how it was typed in the hosting dashboard: without a
+// scheme, fetch would treat "my-api.up.railway.app" as a path on this site (the request then
+// hits the static host and fails with a confusing 405), and a trailing "/" would double up.
+function apiUrl(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return "http://localhost:5000";
+  const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  return withScheme.replace(/\/+$/, "");
+}
+
+export const API_URL: string = apiUrl(import.meta.env.VITE_API_URL);
 
 export class ApiError extends Error {
     status: number;
