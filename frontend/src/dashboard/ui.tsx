@@ -1,7 +1,7 @@
 import { useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { Check, CircleAlert, CircleCheck, CircleSlash, CircleX, Clock, Copy, LoaderCircle, Play, RotateCw, Webhook, type LucideIcon } from "lucide-react";
+import { Check, CircleAlert, CircleCheck, CircleSlash, CircleX, Clock, Copy, LoaderCircle, Play, RotateCw, Send, Webhook, type LucideIcon } from "lucide-react";
 import type { Run, RunStatus, StepStatus, Trigger } from "../api/types";
 import { cn } from "../lib/cn";
 
@@ -98,7 +98,9 @@ export function TriggerBadge({ trigger }: { trigger: Trigger }) {
       ? { icon: Clock, label: describeCron(trigger.schedule) }
       : trigger.type === "webhook"
         ? { icon: Webhook, label: "Webhook" }
-        : { icon: Play, label: "Manual" };
+        : trigger.type === "telegram"
+          ? { icon: Send, label: "Telegram" }
+          : { icon: Play, label: "Manual" };
 
   return (
     <span className="inline-flex items-center gap-2 rounded-full bg-ink/5 px-3 py-1.5 text-sm">

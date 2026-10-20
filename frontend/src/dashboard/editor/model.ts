@@ -95,6 +95,13 @@ export const sameSlot = (a: Slot | null, b: Slot) => a !== null && a.list === b.
 
 export const MAX_OUTLETS = 3;
 
+// A list that ends in paths (an If's, or a step's branches). Each path then simply ends; adding
+// a step after them would join them, so the editor only does that when asked ("Join paths").
+export function endsInFork(list: EditorStep[]) {
+  const last = list[list.length - 1];
+  return last !== undefined && (last.kind === "condition" || last.kind === "split");
+}
+
 // A step has an outlet on top and one underneath: the new branch goes above or below the others.
 export type Side = "top" | "bottom";
 
@@ -494,6 +501,7 @@ export function validate(draft: Draft): Problems | null {
   if (!draft.name.trim()) general = "Give your workflow a name.";
   else if (draft.steps.length === 0) general = "Add at least one step.";
   else if (draft.trigger.type === "cron" && !draft.trigger.schedule.trim()) general = "Choose when it should run.";
+  else if (draft.trigger.type === "telegram" && !draft.trigger.credentialId) general = "Pick the Telegram bot that starts this workflow.";
   else if (Object.keys(steps).length > 0) general = "Some steps need attention.";
 
   return general || Object.keys(steps).length > 0 ? { general, steps } : null;

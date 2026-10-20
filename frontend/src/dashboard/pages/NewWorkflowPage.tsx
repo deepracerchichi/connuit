@@ -48,7 +48,7 @@ function TemplateGallery({ onPick }: { onPick: (templateKey: string) => void }) 
                   <template.icon className="h-5 w-5" strokeWidth={1.75} />
                 </span>
                 <span className="rounded-full bg-ink/5 px-3 py-1 text-xs text-ink/60">
-                  {draft.trigger.type === "cron" ? describeCron(draft.trigger.schedule) : draft.trigger.type === "webhook" ? "When another app calls it" : "When you click Run"}
+                  {draft.trigger.type === "cron" ? describeCron(draft.trigger.schedule) : draft.trigger.type === "webhook" ? "When another app calls it" : draft.trigger.type === "telegram" ? "When your bot gets a message" : "When you click Run"}
                 </span>
               </div>
               <h2 className="mt-5 text-2xl tracking-tight">{template.title}</h2>

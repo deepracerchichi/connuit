@@ -1,10 +1,10 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, CircleAlert, Maximize, Minus, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, Maximize, Merge, Minus, Plus, Trash2 } from "lucide-react";
 import type { Branch, RunStep } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { formatDuration, StatusIcon } from "../ui";
 import { detectBlock } from "./blocks";
-import { allSteps, branchSlot, branchTarget, canBranch, MAX_OUTLETS, movable, outletCount, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Side, type Slot } from "./model";
+import { allSteps, branchSlot, branchTarget, canBranch, endsInFork, MAX_OUTLETS, movable, outletCount, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Side, type Slot } from "./model";
 import { IconButton, PopIn, selectOnKey, StepPicker, triggerSummary, usePulse, type PipeProps } from "./Pipeline";
 import { BRANCH_LABEL, deliveredResults, kindLabel, resultText, stepNumbers } from "./view";
 
@@ -226,18 +226,23 @@ export default function Canvas(props: CanvasProps) {
 
         <Sequence list={steps} listKey={ROOT} ctx={ctx} />
 
-        <Pipe short />
-        <button
-          type="button"
-          onClick={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)}
-          className={cn(
-            "flex h-12 shrink-0 items-center gap-2 rounded-full border border-dashed px-5 text-sm transition-colors",
-            sameSlot(insertAt, endSlot) ? "border-ink bg-accent" : "border-ink/30 bg-white hover:border-ink hover:bg-accent",
-          )}
-        >
-          <Plus className="h-4 w-4" strokeWidth={2} />
-          {steps.length === 0 ? "Add your first step" : "Add step"}
-        </button>
+        {/* After paths, adding a step would join them: that's the fork's own "Join" button, not "Add step" */}
+        {endsInFork(steps) ? null : (
+          <>
+            <Pipe short />
+            <button
+              type="button"
+              onClick={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)}
+              className={cn(
+                "flex h-12 shrink-0 items-center gap-2 rounded-full border border-dashed px-5 text-sm transition-colors",
+                sameSlot(insertAt, endSlot) ? "border-ink bg-accent" : "border-ink/30 bg-white hover:border-ink hover:bg-accent",
+              )}
+            >
+              <Plus className="h-4 w-4" strokeWidth={2} />
+              {steps.length === 0 ? "Add your first step" : "Add step"}
+            </button>
+          </>
+        )}
       </div>
 
       {/* ---------- Floating UI (not scaled with the canvas, so it's always readable) ---------- */}
@@ -325,11 +330,14 @@ function Sequence({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
   return list.map((step, i) => {
     const slot = { list: listKey, index: i };
     const result = results.get(step.id);
+    // Paths only join back up when a step comes after them; otherwise each path just ends.
+    const joined = i < list.length - 1;
+    const join = joined ? undefined : { list: listKey, index: list.length }; // where "Join paths" would add its step
     if (step.kind === "split") {
       return (
         <Fragment key={step.id}>
           <Pipe short />{/* no ⊕ here: a step put between would take the branches over */}
-          <SplitFork split={step} ctx={ctx} />
+          <SplitFork split={step} joined={joined} join={join} ctx={ctx} />
         </Fragment>
       );
     }
@@ -355,7 +363,7 @@ function Sequence({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
         {step.kind === "condition" && (
           <>
             <Pipe short />
-            <Fork step={step} ctx={ctx} />
+            <Fork step={step} joined={joined} join={join} ctx={ctx} />
           </>
         )}
       </Fragment>
@@ -364,14 +372,16 @@ function Sequence({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
 }
 
 // An If's two lanes: Yes on top, No below. After a test run, the path not taken fades.
-function Fork({ step, ctx }: { step: EditorStep; ctx: LaneContext }) {
+// `joined`: a step comes after the If, so both lanes bend back into one pipe that leads to it.
+function Fork({ step, joined, join, ctx }: { step: EditorStep; joined: boolean; join?: Slot; ctx: LaneContext }) {
   const decision = ctx.results.get(step.id)?.decision;
   return (
-    <div className="flex shrink-0 flex-col">
+    <div className={cn("relative flex shrink-0 flex-col", !joined && "items-start")}>
       {(["yes", "no"] as const).map((branch: Branch, i) => (
         <Lane
           key={branch}
           position={i === 0 ? "first" : "last"}
+          joined={joined}
           list={step[branch]}
           listKey={pathKey(step.id, branch)}
           ctx={ctx}
@@ -380,32 +390,29 @@ function Fork({ step, ctx }: { step: EditorStep; ctx: LaneContext }) {
           faded={!!decision && decision !== branch}
         />
       ))}
+      <BelowFork join={join} ctx={ctx} />
     </div>
   );
 }
 
 // A step's branches: plain pipes out of it, one per lane. Each gets that step's output; a step
 // added after them gets all their results together. (Remove a branch's last step and it goes.)
-function SplitFork({ split, ctx }: { split: EditorStep; ctx: LaneContext }) {
+function SplitFork({ split, joined, join, ctx }: { split: EditorStep; joined: boolean; join?: Slot; ctx: LaneContext }) {
   const error = ctx.problems?.steps[split.id];
   return (
-    <div className="relative flex shrink-0 flex-col">
+    <div className={cn("relative flex shrink-0 flex-col", !joined && "items-start")}>
       {split.lanes.map((list, i) => (
         <Lane
           key={i}
           position={i === 0 ? "first" : i === split.lanes.length - 1 ? "last" : "middle"}
+          joined={joined}
           list={list}
           listKey={pathKey(split.id, i)}
           ctx={ctx}
           emptyLabel={`Add a step to branch ${i + 1}`}
         />
       ))}
-      {/* Hangs below the fork, so it doesn't change its height (the pipes meet at its middle) */}
-      {error && (
-        <p className="absolute left-8 top-full flex w-72 items-start gap-1.5 text-xs leading-snug text-red-700">
-          <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} /> {error}
-        </p>
-      )}
+      <BelowFork join={join} error={error} ctx={ctx} />
     </div>
   );
 }
@@ -429,6 +436,7 @@ function LaneTag({ tone, strong = false, children }: { tone: "lime" | "white"; s
 // outgoing pipe leaves from, whatever height each lane grows to.
 function Lane({
   position,
+  joined,
   list,
   listKey,
   ctx,
@@ -437,6 +445,7 @@ function Lane({
   faded = false,
 }: {
   position: "first" | "middle" | "last";
+  joined: boolean; // bend back into one pipe on the right (a step follows), or just end
   list: EditorStep[];
   listKey: string;
   ctx: LaneContext;
@@ -462,15 +471,19 @@ function Lane({
   );
 
   return (
-    <div className={cn("relative flex items-center px-8 py-12 transition-opacity", faded && "opacity-40")}>
+    <div className={cn("relative flex items-center py-12 transition-opacity", joined ? "px-8" : "pl-8", faded && "opacity-40")}>
       <span className={cn(tube, "left-0 border-l-12", position === "first" && "rounded-tl-2xl", position === "last" && "rounded-bl-2xl")} />
       <span className={cn(shine, "left-[5px] border-l-2", position === "first" && "rounded-tl-[11px]", position === "last" && "rounded-bl-[11px]")} />
-      <span className={cn(tube, "right-0 border-r-12", position === "first" && "rounded-tr-2xl", position === "last" && "rounded-br-2xl")} />
-      <span className={cn(shine, "right-[5px] border-r-2", position === "first" && "rounded-tr-[11px]", position === "last" && "rounded-br-[11px]")} />
+      {joined && (
+        <>
+          <span className={cn(tube, "right-0 border-r-12", position === "first" && "rounded-tr-2xl", position === "last" && "rounded-br-2xl")} />
+          <span className={cn(shine, "right-[5px] border-r-2", position === "first" && "rounded-tr-[11px]", position === "last" && "rounded-br-[11px]")} />
+        </>
+      )}
       {position === "middle" && (
         <>
           <span className="pipe-x pointer-events-none absolute left-3 top-[calc(50%-6px)] h-3 w-5" />
-          <span className="pipe-x pointer-events-none absolute right-3 top-[calc(50%-6px)] h-3 w-5" />
+          {joined && <span className="pipe-x pointer-events-none absolute right-3 top-[calc(50%-6px)] h-3 w-5" />}
         </>
       )}
 
@@ -478,8 +491,17 @@ function Lane({
 
       <Sequence list={list} listKey={listKey} ctx={ctx} />
 
-      {/* The rest of the lane, stretching so all lanes end together; its ⊕ adds to the end of this path */}
-      <Pipe grow open={sameSlot(insertAt, endSlot)} onAdd={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)} label={list.length === 0 ? emptyLabel : undefined} />
+      {joined ? (
+        // The rest of the lane, stretching so all lanes meet the join together; its ⊕ adds to the end of this path
+        <Pipe grow open={sameSlot(insertAt, endSlot)} onAdd={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)} label={list.length === 0 ? emptyLabel : undefined} />
+      ) : endsInFork(list) ? null /* this path ends in its own fork, which has its own "Join" button */ : (
+        // An open end: this path stops here unless you add to it
+        <Pipe
+          open={sameSlot(insertAt, endSlot)}
+          onAdd={() => onOpenInsert(sameSlot(insertAt, endSlot) ? null : endSlot)}
+          label={list.length === 0 ? emptyLabel : "Add a step to this path"}
+        />
+      )}
     </div>
   );
 }
@@ -696,6 +718,40 @@ function Outlet({ side, outlets, open, onClick }: { side: Side; outlets: number;
       >
         <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
       </button>
+    </div>
+  );
+}
+
+// Paths that end side by side only join when you say so: this adds the step that gets all their results.
+function JoinButton({ slot, insertAt, onOpenInsert }: { slot: Slot; insertAt: Slot | null; onOpenInsert: (slot: Slot | null) => void }) {
+  const open = sameSlot(insertAt, slot);
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenInsert(open ? null : slot)}
+      title="Add a step that runs after these paths and gets their results"
+      className={cn(
+        "flex h-9 shrink-0 items-center gap-2 rounded-full border border-dashed px-4 text-xs transition-colors",
+        open ? "border-ink bg-accent" : "border-ink/30 bg-white hover:border-ink hover:bg-accent",
+      )}
+    >
+      <Merge className="h-3.5 w-3.5" strokeWidth={2} /> Join paths into one step
+    </button>
+  );
+}
+
+// Hangs under a fork without changing its height (the pipes meet at its middle): the explicit
+// "Join paths" button when nothing follows the fork yet, and any problem with the branches.
+function BelowFork({ join, error, ctx }: { join?: Slot; error?: string; ctx: LaneContext }) {
+  if (!join && !error) return null;
+  return (
+    <div data-nopan className="absolute left-8 top-full -mt-8 flex flex-col items-start gap-2">
+      {join && <JoinButton slot={join} insertAt={ctx.insertAt} onOpenInsert={ctx.onOpenInsert} />}
+      {error && (
+        <p className="flex w-72 items-start gap-1.5 text-xs leading-snug text-red-700">
+          <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} /> {error}
+        </p>
+      )}
     </div>
   );
 }

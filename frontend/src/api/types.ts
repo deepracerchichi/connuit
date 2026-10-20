@@ -1,7 +1,11 @@
 // Shapes of what the backend sends. Mongo documents arrive with "_id";
 // the credentials route builds its own objects, so those use "id".
 
-export type Trigger = { type: "manual" } | { type: "webhook" } | { type: "cron"; schedule: string };
+export type Trigger =
+  | { type: "manual" }
+  | { type: "webhook" }
+  | { type: "cron"; schedule: string }
+  | { type: "telegram"; credentialId: string }; // a message to this bot starts a run (its token is the credential)
 
 export type NodeConfig =
   | {

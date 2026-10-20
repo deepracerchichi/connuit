@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { ChevronDown, ChevronUp, CircleAlert, Clock, GitBranchPlus, Play, Plus, Trash2, Webhook, X } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleAlert, Clock, GitBranchPlus, Merge, Play, Plus, Send, Trash2, Webhook, X } from "lucide-react";
 import type { Branch, Run, RunStep } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { describeCron, formatDuration, StatusIcon } from "../ui";
 import { BLOCKS, detectBlock } from "./blocks";
-import { branchSlot, canBranch, MAX_OUTLETS, movable, outletCount, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Problems, type Slot } from "./model";
+import { branchSlot, canBranch, endsInFork, MAX_OUTLETS, movable, outletCount, pathKey, ROOT, sameSlot, type Draft, type EditorStep, type Problems, type Slot } from "./model";
 import { BRANCH_LABEL, deliveredResults, kindLabel, resultText, stepNumbers } from "./view";
 
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -105,9 +105,15 @@ export default function Pipeline(props: PipelineProps) {
 
       <StepList list={draft.steps} listKey={ROOT} ctx={ctx} />
 
-      {/* The open end of the pipe: add the next step */}
-      <Pipe short />
-      <AddAtEnd slot={{ list: ROOT, index: draft.steps.length }} ctx={ctx} label={draft.steps.length === 0 ? "Add your first step" : "Add step"} />
+      {/* The open end of the pipe: add the next step (after paths, that joins them, so it says so) */}
+      {endsInFork(draft.steps) ? (
+        <AddAtEnd slot={{ list: ROOT, index: draft.steps.length }} ctx={ctx} label="Join paths into one step" join />
+      ) : (
+        <>
+          <Pipe short />
+          <AddAtEnd slot={{ list: ROOT, index: draft.steps.length }} ctx={ctx} label={draft.steps.length === 0 ? "Add your first step" : "Add step"} />
+        </>
+      )}
     </div>
   );
 }
@@ -119,12 +125,13 @@ function StepList({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
     const slot = { list: listKey, index: i };
     const result = results.get(step.id);
     const picker = sameSlot(insertAt, slot) && <StepPicker onPick={(s) => onInsert(slot, s)} onClose={() => onOpenInsert(null)} />;
+    const joined = i < list.length - 1; // paths only join back up when a step comes after them
     if (step.kind === "split") {
       // A step's branches: no ⊕ before them, since a step put there would take the branches over.
       return (
         <Fragment key={step.id}>
           <Pipe short />
-          <SplitPaths split={step} ctx={ctx} />
+          <SplitPaths split={step} joined={joined} ctx={ctx} />
         </Fragment>
       );
     }
@@ -151,14 +158,14 @@ function StepList({ list, listKey, ctx }: { list: EditorStep[]; listKey: string;
         />
         {sameSlot(insertAt, branch) && <StepPicker title="Add a branch: another step that gets this one's output" onPick={(s) => onInsert(branch, s)} onClose={() => onOpenInsert(null)} />}
         {selected === step.id && <div className="mt-3 lg:hidden">{renderSettings(step.id)}</div>}
-        {step.kind === "condition" && <Paths step={step} ctx={ctx} />}
+        {step.kind === "condition" && <Paths step={step} joined={joined} ctx={ctx} />}
       </Fragment>
     );
   });
 }
 
 // An If step's two paths, one under the other, each its own little pipe.
-function Paths({ step, ctx }: { step: EditorStep; ctx: ListContext }) {
+function Paths({ step, joined, ctx }: { step: EditorStep; joined: boolean; ctx: ListContext }) {
   const decision = ctx.results.get(step.id)?.decision;
   return (
     <>
@@ -176,13 +183,13 @@ function Paths({ step, ctx }: { step: EditorStep; ctx: ListContext }) {
           />
         ))}
       </div>
-      <p className="mt-2 text-center text-xs text-ink/45">Both paths carry on below</p>
+      <p className="mt-2 text-center text-xs text-ink/45">{joined ? "Both paths carry on below" : "Each path ends on its own"}</p>
     </>
   );
 }
 
 // A step's branches: each gets that step's output, and they all run.
-function SplitPaths({ split, ctx }: { split: EditorStep; ctx: ListContext }) {
+function SplitPaths({ split, joined, ctx }: { split: EditorStep; joined: boolean; ctx: ListContext }) {
   const error = ctx.problems?.steps[split.id];
   return (
     <>
@@ -204,7 +211,9 @@ function SplitPaths({ split, ctx }: { split: EditorStep; ctx: ListContext }) {
           <CircleAlert className="h-4 w-4 shrink-0" strokeWidth={2} /> {error}
         </p>
       )}
-      <p className="mt-2 text-center text-xs text-ink/45">Every branch runs. A step added below gets all their results together.</p>
+      <p className="mt-2 text-center text-xs text-ink/45">
+        {joined ? "Every branch runs. The step below gets all their results together." : "Every branch runs, each ending on its own."}
+      </p>
     </>
   );
 }
@@ -214,8 +223,14 @@ function PathBox({ list, listKey, ctx, tag, emptyLabel, className }: { list: Edi
     <div className={cn("rounded-2xl border border-dashed p-3 transition-opacity", className)}>
       {tag}
       <StepList list={list} listKey={listKey} ctx={ctx} />
-      {list.length > 0 && <Pipe short />}
-      <AddAtEnd slot={{ list: listKey, index: list.length }} ctx={ctx} label={list.length === 0 ? emptyLabel : "Add step"} small />
+      {endsInFork(list) ? (
+        <AddAtEnd slot={{ list: listKey, index: list.length }} ctx={ctx} label="Join paths into one step" small join />
+      ) : (
+        <>
+          {list.length > 0 && <Pipe short />}
+          <AddAtEnd slot={{ list: listKey, index: list.length }} ctx={ctx} label={list.length === 0 ? emptyLabel : "Add step"} small />
+        </>
+      )}
     </div>
   );
 }
@@ -234,7 +249,7 @@ export function BranchTag({ branch, taken = false }: { branch: Branch; taken?: b
   );
 }
 
-function AddAtEnd({ slot, ctx, label, small = false }: { slot: Slot; ctx: ListContext; label: string; small?: boolean }) {
+function AddAtEnd({ slot, ctx, label, small = false, join = false }: { slot: Slot; ctx: ListContext; label: string; small?: boolean; join?: boolean }) {
   const { insertAt, onOpenInsert, onInsert } = ctx;
   if (sameSlot(insertAt, slot)) return <StepPicker onPick={(s) => onInsert(slot, s)} onClose={() => onOpenInsert(null)} />;
   return (
@@ -244,9 +259,10 @@ function AddAtEnd({ slot, ctx, label, small = false }: { slot: Slot; ctx: ListCo
       className={cn(
         "mx-auto inline-flex items-center gap-2 rounded-full border border-dashed border-ink/30 bg-white transition-colors hover:border-ink hover:bg-accent",
         small ? "mt-2 px-4 py-2 text-xs" : "px-5 py-2.5 text-sm",
+        join && "mt-3",
       )}
     >
-      <Plus className="h-4 w-4" strokeWidth={2} />
+      {join ? <Merge className="h-4 w-4" strokeWidth={2} /> : <Plus className="h-4 w-4" strokeWidth={2} />}
       {label}
     </button>
   );
@@ -299,7 +315,9 @@ export function triggerSummary(trigger: Draft["trigger"]) {
     ? { icon: Clock, title: trigger.schedule.trim() ? describeCron(trigger.schedule) : "Choose a schedule" }
     : trigger.type === "webhook"
       ? { icon: Webhook, title: "When another app calls it" }
-      : { icon: Play, title: "When you click Run" };
+      : trigger.type === "telegram"
+        ? { icon: Send, title: trigger.credentialId ? "When your bot gets a message" : "Pick a Telegram bot" }
+        : { icon: Play, title: "When you click Run" };
 }
 
 function TriggerCard({ draft, selected, onSelect }: { draft: Draft; selected: boolean; onSelect: () => void }) {

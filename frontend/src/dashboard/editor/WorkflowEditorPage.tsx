@@ -244,7 +244,14 @@ export default function WorkflowEditorPage() {
 
   const renderSettings = (key: string) => {
     if (key === "trigger") {
-      return <TriggerSettings trigger={draft.trigger} onChange={(trigger) => edit((d) => ({ ...d, trigger }))} webhookUrl={webhookUrl} />;
+      return (
+        <TriggerSettings
+          trigger={draft.trigger}
+          onChange={(trigger) => edit((d) => ({ ...d, trigger }))}
+          webhookUrl={webhookUrl}
+          credentials={credentials.data ?? []}
+        />
+      );
     }
     const index = everyStep.findIndex((s) => s.id === key);
     if (index < 0) return null;

@@ -13,6 +13,9 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.2.0",

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { Link } from "react-router";
-import { ArrowLeft, Clock, Footprints, Lock, Play, Plus, SlidersHorizontal, Sparkles, Webhook, X } from "lucide-react";
+import { ArrowLeft, Clock, Footprints, Lock, Play, Plus, Send, SlidersHorizontal, Sparkles, Webhook, X } from "lucide-react";
 import type { Credential, Trigger } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { describeCron, WebhookUrl } from "../ui";
@@ -190,6 +190,7 @@ const TRIGGER_OPTIONS = [
   { type: "manual", label: "By hand", description: "Only when you click Run", icon: Play },
   { type: "cron", label: "On a schedule", description: "Every hour, day or week", icon: Clock },
   { type: "webhook", label: "From another app", description: "When it calls a private URL", icon: Webhook },
+  { type: "telegram", label: "From Telegram", description: "When someone messages your bot", icon: Send },
 ] as const;
 
 const SCHEDULES = [
@@ -199,11 +200,24 @@ const SCHEDULES = [
   { label: "Mondays at 8:00", cron: "0 8 * * 1" },
 ];
 
-export function TriggerSettings({ trigger, onChange, webhookUrl }: { trigger: Trigger; onChange: (trigger: Trigger) => void; webhookUrl: string | null }) {
+export function TriggerSettings({
+  trigger,
+  onChange,
+  webhookUrl,
+  credentials,
+}: {
+  trigger: Trigger;
+  onChange: (trigger: Trigger) => void;
+  webhookUrl: string | null;
+  credentials: Credential[];
+}) {
   const choose = (type: Trigger["type"]) => {
     if (type === trigger.type) return;
-    onChange(type === "cron" ? { type: "cron", schedule: "0 9 * * *" } : { type });
+    onChange(
+      type === "cron" ? { type: "cron", schedule: "0 9 * * *" } : type === "telegram" ? { type: "telegram", credentialId: "" } : { type },
+    );
   };
+  const bots = credentials.filter((c) => c.provider.toLowerCase() === "telegram");
 
   return (
     <Panel eyebrow="Trigger" title="When should it run?">
@@ -274,6 +288,25 @@ export function TriggerSettings({ trigger, onChange, webhookUrl }: { trigger: Tr
           )}
           <p className="text-xs leading-relaxed text-ink/50">
             Whatever JSON the other app sends becomes the first step's <Chip tone="lime">previous step's output</Chip>.
+          </p>
+        </div>
+      )}
+
+      {trigger.type === "telegram" && (
+        <div className="flex flex-col gap-3">
+          <Field label="Telegram bot" hint={<CredentialHint credentials={bots} text="Saving connects the bot to this workflow. A bot can start one workflow at a time." />}>
+            <select value={trigger.credentialId} onChange={(e) => onChange({ type: "telegram", credentialId: e.target.value })} className={inputClass}>
+              <option value="">Choose a saved bot…</option>
+              {bots.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <p className="text-xs leading-relaxed text-ink/50">
+            Each message becomes the first step's <Chip tone="lime">previous step's output</Chip>, with its <code>text</code>, <code>chatId</code> and sender (
+            <code>from</code>). To reply, add a Send to Telegram step with chat ID {"{{previousOutput.chatId}}"} as the first step.
           </p>
         </div>
       )}

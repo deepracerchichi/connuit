@@ -39,6 +39,7 @@ const nodeConfigSchema = z.discriminatedUnion("type", [
 const triggerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("manual") }),
   z.object({ type: z.literal("webhook") }),
+  z.object({ type: z.literal("telegram"), credentialId: z.string().min(1, "Pick the Telegram bot that starts this workflow.") }),
   z.object({
   type: z.literal("cron"),
   schedule: z

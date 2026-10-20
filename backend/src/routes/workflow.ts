@@ -8,10 +8,29 @@ import { RunModel } from "../model/runSchema.js";
 
 import { runQueue } from "../queue/runQueue.js";
 import { scheduleCronWorkflow, unscheduleCronWorkflow } from "../scheduler/cronScheduler.js";
+import { registerTelegramWebhook, unregisterTelegramWebhook } from "../services/telegramService.js";
+import type { Trigger } from "../domain/workflow.js";
 
 
 
 export const workflowsRouter = Router();
+
+// Webhook and Telegram triggers are both reached through a URL with the workflow's own token.
+const needsWebhookToken = (trigger: Trigger) => trigger.type === "webhook" || trigger.type === "telegram";
+
+// Telegram gives each bot one webhook, so one bot can start one workflow. Saying so beats
+// silently pointing the bot away from the workflow that had it.
+async function assertBotIsFree(userId: string, credentialId: string, exceptWorkflowId?: string) {
+  const other = await WorkflowModel.findOne({
+    userId,
+    "trigger.type": "telegram",
+    "trigger.credentialId": credentialId,
+    ...(exceptWorkflowId ? { _id: { $ne: exceptWorkflowId } } : {}),
+  });
+  if (other) {
+    throw new AppError(`That bot already starts “${other.name}”. A Telegram bot can start one workflow: pick another bot, or change that workflow first.`, 409);
+  }
+}
 workflowsRouter.use(requireAuth);
 workflowsRouter.post("/", async (req, res) => {
   // 1. Authenticate — TODO: real JWT auth (milestone 3b)
@@ -28,7 +47,13 @@ workflowsRouter.post("/", async (req, res) => {
 
   
 // 3. Act
-const webhookToken = parsed.data.trigger.type === "webhook" ? crypto.randomUUID() : undefined;
+const trigger = parsed.data.trigger;
+const webhookToken = needsWebhookToken(trigger) ? crypto.randomUUID() : undefined;
+// Point the bot at this workflow before saving, so a bad token or unset server config fails the save.
+if (trigger.type === "telegram") {
+  await assertBotIsFree(userId, trigger.credentialId);
+  await registerTelegramWebhook(userId, trigger.credentialId, webhookToken!);
+}
 const workflow = await WorkflowModel.create({ userId, ...parsed.data, webhookToken });
 
 if (workflow.trigger.type === "cron") {
@@ -113,12 +138,23 @@ workflowsRouter.put("/:id", async (req, res) => {
 
   // Keep the same webhook URL across edits (other apps are already calling it).
   // Only create a token if it just became a webhook; drop it if it stopped being one.
-  const webhookToken = parsed.data.trigger.type === "webhook"
-    ? workflow.webhookToken ?? crypto.randomUUID()
-    : undefined;
+  const before = workflow.trigger as Trigger;
+  const after = parsed.data.trigger;
+  const webhookToken = needsWebhookToken(after) ? workflow.webhookToken ?? crypto.randomUUID() : undefined;
+
+  // (Re)point the bot at this workflow before saving, so a bad token fails the save, not later runs.
+  if (after.type === "telegram") {
+    await assertBotIsFree(userId, after.credentialId, workflow.id);
+    await registerTelegramWebhook(userId, after.credentialId, webhookToken!);
+  }
 
   workflow.set({ ...parsed.data, webhookToken });
   await workflow.save();
+
+  // A bot that no longer starts this workflow should stop sending us its messages.
+  if (before.type === "telegram" && !(after.type === "telegram" && after.credentialId === before.credentialId)) {
+    await unregisterTelegramWebhook(userId, before.credentialId);
+  }
 
   // Throw away the old timer, then start a new one if it's (still) a cron workflow.
   unscheduleCronWorkflow(workflow.id);
@@ -138,6 +174,8 @@ workflowsRouter.delete("/:id", async (req, res) => {
   }
 
   unscheduleCronWorkflow(workflow.id);
+  const trigger = workflow.trigger as Trigger;
+  if (trigger.type === "telegram") await unregisterTelegramWebhook(userId, trigger.credentialId);
   await RunModel.deleteMany({ workflowId: workflow.id });
   return res.status(204).send();
 });
