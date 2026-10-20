@@ -1,4 +1,4 @@
-import { CloudSun, Code, GitFork, Globe, Hash, MessageSquare, Newspaper, Send, Sparkles, type LucideIcon } from "lucide-react";
+import { CloudSun, Code, GitFork, Globe, Hash, MessageSquare, Newspaper, Mail, Send, Sparkles, type LucideIcon } from "lucide-react";
 import { CREDENTIAL, makeStep, PREVIOUS, TOKEN_PATTERN, type EditorStep } from "./model";
 
 // Friendly building blocks. The backend only has two step types (an HTTP request and an
@@ -258,9 +258,37 @@ export const telegram: Block = {
   summary: (p) => (!p.credentialId ? "Pick a bot" : p.chatId.trim() ? `To chat ${p.chatId.trim()}` : "No chat ID yet"),
 };
 
+/* ---------- Gmail: an email from a connected Gmail account (OAuth, send-only) ---------- */
+
+export const gmail: Block = {
+  key: "gmail",
+  label: "Send Gmail",
+  description: "Email from your Gmail account",
+  icon: Mail,
+  simpleOnly: true, // its own step type: there's no raw request to show
+  fields: [
+    {
+      name: "credentialId",
+      label: "Send from",
+      kind: "credential",
+      provider: "google",
+      placeholder: "Choose a connected Gmail…",
+      hint: "Connect Gmail under Credentials first. While Conduit's Google app is in testing, a connection lasts 7 days; then reconnect.",
+    },
+    { name: "to", label: "To", kind: "text", placeholder: "name@company.com, or {{trigger.email}}", hint: "Several people? Separate them with commas." },
+    { name: "subject", label: "Subject", kind: "text", placeholder: "e.g. Your weekly summary" },
+    { name: "text", label: "Message", kind: "textarea", hint: "Plain text. {{previousOutput}} puts the previous step's output in the email." },
+  ],
+  create: () => makeStep({ kind: "gmail_send", name: "Send Gmail", text: PREVIOUS }),
+  read: (step) =>
+    step.kind === "gmail_send" ? { credentialId: step.credentialId, to: step.to, subject: step.subject, text: step.text } : null,
+  write: (p) => ({ credentialId: p.credentialId ?? "", to: p.to ?? "", subject: p.subject ?? "", text: p.text ?? "" }), // no trimming mid-typing
+  summary: (p) => (!p.credentialId ? "Pick a Gmail account" : p.to.trim() ? `To ${p.to.trim()}` : "No recipient yet"),
+};
+
 // Order matters: specific blocks first, the catch-all last.
 // (Branches aren't a block: you add one from a step's free outlet.)
-export const BLOCKS: Block[] = [hackerNews, weather, fetchUrl, askAi, decide, slack, discord, telegram, custom];
+export const BLOCKS: Block[] = [hackerNews, weather, fetchUrl, askAi, decide, slack, discord, telegram, gmail, custom];
 
 export function detectBlock(step: EditorStep): { block: Block; params: Params } {
   for (const block of BLOCKS) {

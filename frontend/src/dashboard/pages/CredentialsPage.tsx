@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { KeyRound, Lock, Plus, Trash2, X } from "lucide-react";
+import { KeyRound, Lock, Mail, Plus, Trash2, X } from "lucide-react";
+import { useSearchParams } from "react-router";
 import { apiFetch } from "../../api/client";
 import type { Credential } from "../../api/types";
 import { ErrorBox, FloatingField } from "../../components/auth/AuthLayout";
@@ -9,15 +10,50 @@ import { ActionChip, actionChipClass, actionClass, EmptyState, ErrorState, Loadi
 
 const PROVIDERS = ["Slack", "Discord", "Telegram", "OpenAI", "GitHub", "Other"];
 
+// Where Google's "Allow" screen sends people back to: ?google=<outcome> (see backend routes/oauth.ts).
+const GOOGLE_OUTCOMES: Record<string, { ok: boolean; text: string }> = {
+  connected: { ok: true, text: "Gmail connected. Add a Send Gmail step to a workflow to use it." },
+  cancelled: { ok: false, text: "Gmail wasn't connected: you cancelled on Google's screen." },
+  "no-send-permission": { ok: false, text: "Gmail wasn't connected: leave “Send email on your behalf” ticked on Google's screen, or Conduit can't send." },
+  expired: { ok: false, text: "That took too long, or the link was used twice. Try connecting again." },
+  failed: { ok: false, text: "Google didn't complete the connection. Try again; if it keeps failing, check your account is a test user on the Google app." },
+};
+
 export default function CredentialsPage() {
   const { data, error, loading, reload } = useApi<Credential[]>("/credentials");
   const [adding, setAdding] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const outcome = GOOGLE_OUTCOMES[params.get("google") ?? ""];
   const ref = useRise<HTMLDivElement>(data !== null);
+
+  // Google's screen can't be a plain link: the backend needs the login token to know who's connecting,
+  // so ask it for the address first, then leave for Google.
+  async function connectGmail() {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const { url } = await apiFetch<{ url: string }>("/oauth/google/start", { method: "POST" });
+      window.location.href = url;
+    } catch (err) {
+      setConnectError(errorMessage(err));
+      setConnecting(false);
+    }
+  }
 
   const addButton = (
     <button type="button" onClick={() => setAdding(true)} className={actionChipClass()}>
       Add credential <ActionChip icon={Plus} motion="spin" />
     </button>
+  );
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" onClick={connectGmail} disabled={connecting} className={actionClass("secondary", "px-4")}>
+        <Mail className="h-4 w-4" strokeWidth={1.75} /> {connecting ? "Opening Google…" : "Connect Gmail"}
+      </button>
+      {addButton}
+    </div>
   );
 
   return (
@@ -26,8 +62,31 @@ export default function CredentialsPage() {
         tag="Credentials"
         title="Credentials."
         subtitle="Keys your workflows use. Encrypted when saved and never shown again."
-        action={addButton}
+        action={actions}
       />
+
+      {(outcome || connectError) && (
+        <div
+          role="status"
+          className={cn(
+            "mt-8 flex items-center gap-3 rounded-xl px-4 py-3 text-sm",
+            outcome?.ok && !connectError ? "bg-accent text-ink" : "border border-red-200 bg-red-50 text-red-700",
+          )}
+        >
+          <span className="min-w-0 flex-1">{connectError ?? outcome?.text}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => {
+              setConnectError(null);
+              setParams({}, { replace: true });
+            }}
+            className="rounded-md p-1 opacity-60 hover:opacity-100"
+          >
+            <X className="h-4 w-4" strokeWidth={2} />
+          </button>
+        </div>
+      )}
 
       <div className="mt-10">
         {error ? (

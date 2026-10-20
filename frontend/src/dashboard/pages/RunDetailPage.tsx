@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, GitFork, Globe, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, GitFork, Globe, Mail, Send, Sparkles } from "lucide-react";
 import type { Run, RunStep, Workflow, WorkflowNode } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { useApi } from "../useApi";
@@ -100,6 +100,11 @@ function StepItem({ index, node, step, last }: { index: number; node: WorkflowNo
                 <>
                   <GitFork className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                   <span className="truncate">if: {config.question}</span>
+                </>
+              ) : config.type === "gmail_send" ? (
+                <>
+                  <Mail className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                  <span className="truncate">gmail_send to {config.to}</span>
                 </>
               ) : config.type === "telegram_message" ? (
                 <>

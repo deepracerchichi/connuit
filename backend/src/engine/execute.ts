@@ -1,6 +1,7 @@
 import { callLlm } from "./llm.js";
 import type { WorkflowNode } from "../domain/workflow.js";
 import { interpolate, interpolateDeep } from "./interpolate.js";
+import { sendGmail } from "../services/googleService.js";
 
 
 export async function executeNode(node: WorkflowNode, credentialValues: Map<string, string>, previousOutput: unknown, steps: Map<string, unknown>, trigger?: unknown): Promise<unknown> {
@@ -74,6 +75,16 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
                 throw new Error(`Telegram: ${result?.description ?? `request failed (${response.status})`}`);
             }
             return { messageId: result.result?.message_id };
+        }
+        case "gmail_send": {
+            const credential = credentialValues.get(node.config.credentialId);
+            if (!credential) throw new Error("Send Gmail step needs a connected Gmail account.");
+            const ctx = { previousOutput, steps, trigger };
+            return await sendGmail(credential, {
+                to: interpolate(node.config.to, ctx),
+                subject: interpolate(node.config.subject, ctx),
+                body: interpolate(node.config.text, ctx),
+            });
         }
         case "condition":
             // If steps don't produce data; the run loop calls decide() for them instead.

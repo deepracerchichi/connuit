@@ -27,11 +27,20 @@ export interface TelegramMessageNodeConfig {
   text: string;
 }
 
+export interface GmailSendNodeConfig {
+  type: "gmail_send";
+  credentialId: string; // a "Google" credential made by connecting Gmail (holds the refresh token)
+  to: string; // one address, or several separated by commas
+  subject: string;
+  text: string; // the message, plain text
+}
+
 export type NodeConfig =
   | HttpRequestNodeConfig
   | LlmCallNodeConfig
   | ConditionNodeConfig
-  | TelegramMessageNodeConfig;
+  | TelegramMessageNodeConfig
+  | GmailSendNodeConfig;
 
 
 

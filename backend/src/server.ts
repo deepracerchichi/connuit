@@ -11,6 +11,7 @@ import { authRouter } from "./routes/auth.js";
 import "./queue/runWorker.js";
 import { credentialsRouter } from "./routes/credentials.js";
 import { usageRouter } from "./routes/usage.js";
+import { oauthRouter } from "./routes/oauth.js";
 
 
 await connectToDatabase();
@@ -29,6 +30,7 @@ app.use("/workflows", workflowsRouter);
 app.use("/webhooks", webhooksRouter);   
 app.use("/credentials", credentialsRouter);
 app.use("/usage", usageRouter);
+app.use("/oauth", oauthRouter);
 // --- 404: nothing above matched ---
 app.use((req, res) => {
   res.status(404).json({ error: { message: `Not found: ${req.method} ${req.originalUrl}` } });
