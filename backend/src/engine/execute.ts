@@ -51,6 +51,30 @@ export async function executeNode(node: WorkflowNode, credentialValues: Map<stri
 
             return await callLlm(prompt, node.config.systemPrompt);
         }
+                case "telegram_message": {
+            const token = credentialValues.get(node.config.credentialId);
+            if (!token) throw new Error("Telegram step needs a bot token credential.");
+
+            const ctx = { previousOutput, steps };
+            const chatId = interpolate(node.config.chatId, ctx);
+            const text = interpolate(node.config.text, ctx);
+
+            const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: chatId, text }),
+            });
+
+            const result = (await response.json().catch(() => null)) as
+                | { ok: boolean; description?: string; result?: { message_id: number } }
+                | null;
+
+            // Report Telegram's own reason, never the URL (it contains the token).
+            if (!response.ok || !result?.ok) {
+                throw new Error(`Telegram: ${result?.description ?? `request failed (${response.status})`}`);
+            }
+            return { messageId: result.result?.message_id };
+        }
         case "condition":
             // If steps don't produce data; the run loop calls decide() for them instead.
             throw new Error("If steps are decided by the run loop, not executed here.");

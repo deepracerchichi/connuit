@@ -28,6 +28,12 @@ const nodeConfigSchema = z.discriminatedUnion("type", [
   question: z.string().min(1),
 }),
 
+  z.object({
+    type: z.literal("telegram_message"),
+    credentialId: z.string().min(1),
+    chatId: z.string().min(1),
+    text: z.string().min(1),
+  }),
 ]);
 
 const triggerSchema = z.discriminatedUnion("type", [

@@ -14,6 +14,7 @@ const envSchema = z.object({
   LLM_MODEL: z.string().default("gemini-3.5-flash-lite"),
   AI_CALLS_PER_USER_PER_DAY: z.coerce.number().int().positive().default(50),
   AI_CALLS_PER_DAY_TOTAL: z.coerce.number().int().positive().default(450), // stays under Gemini's free daily limit
+    TELEGRAM_WEBHOOK_SECRET: z.string().regex(/^[A-Za-z0-9_-]{16,256}$/).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

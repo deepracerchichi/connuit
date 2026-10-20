@@ -51,16 +51,20 @@ async function resolveCredentials(workflow: Workflow, userId: string): Promise<M
   const credentialValues = new Map<string, string>();
 
   for (const node of workflow.nodes) {
-    if (node.config.type === "http_request" && node.config.credentialId) {
-      if (credentialValues.has(node.config.credentialId)) continue;
+      for (const node of workflow.nodes) {
+    const credentialId =
+      node.config.type === "http_request" || node.config.type === "telegram_message"
+        ? node.config.credentialId
+        : undefined;
+    if (!credentialId || credentialValues.has(credentialId)) continue;
 
-      const credential = await CredentialModel.findOne({ _id: node.config.credentialId, userId });
-      if (!credential) {
-        throw new AppError(`Credential not found: ${node.config.credentialId}`, 404);
-      }
-
-      credentialValues.set(node.config.credentialId, decrypt(credential.encryptedValue));
+    const credential = await CredentialModel.findOne({ _id: credentialId, userId });
+    if (!credential) {
+      throw new AppError(`Credential not found: ${credentialId}`, 404);
     }
+
+    credentialValues.set(credentialId, decrypt(credential.encryptedValue));
+  }
   }
 
   return credentialValues;

@@ -20,7 +20,20 @@ export interface ConditionNodeConfig {
   question: string; // a yes/no question about the previous step's output, e.g. "Is anyone upset?"
 }
 
-export type NodeConfig = HttpRequestNodeConfig | LlmCallNodeConfig | ConditionNodeConfig;
+export interface TelegramMessageNodeConfig {
+  type: "telegram_message";
+  credentialId: string; // a credential holding the bot token from @BotFather
+  chatId: string;
+  text: string;
+}
+
+export type NodeConfig =
+  | HttpRequestNodeConfig
+  | LlmCallNodeConfig
+  | ConditionNodeConfig
+  | TelegramMessageNodeConfig;
+
+
 
 export interface WorkflowNode {
   id: NodeId;
@@ -50,3 +63,5 @@ export type Trigger =
   | { type: "manual" }
   | { type: "webhook" }
   | { type: "cron"; schedule: string };
+
+
