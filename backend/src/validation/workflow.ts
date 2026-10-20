@@ -4,8 +4,8 @@ import { findStartNodes, topologicalOrder } from "../engine/graph.js";
 
 
 const urlOrTemplate = z.string().refine(
-  (val) => /\{\{\s*(previousOutput|credential|steps\.)/.test(val) || z.url().safeParse(val).success,
-  { message: "Must be a valid URL, or contain a {{previousOutput}}, {{steps.…}} or {{credential}} placeholder" }
+  (val) => /\{\{\s*(previousOutput|credential|steps\.|trigger)/.test(val) || z.url().safeParse(val).success,
+  { message: "Must be a valid URL, or contain a {{previousOutput}}, {{trigger…}}, {{steps.…}} or {{credential}} placeholder" }
 );
 
 
@@ -36,10 +36,27 @@ const nodeConfigSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+// Example data for test runs of workflows that something else starts (a webhook, a Telegram message).
+const sampleSchema = z
+  .string()
+  .max(10_000, "The sample data is too long (10,000 characters at most).")
+  .refine((text) => {
+    try {
+      JSON.parse(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "The sample data isn't valid JSON.");
+
 const triggerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("manual") }),
-  z.object({ type: z.literal("webhook") }),
-  z.object({ type: z.literal("telegram"), credentialId: z.string().min(1, "Pick the Telegram bot that starts this workflow.") }),
+  z.object({ type: z.literal("webhook"), sample: sampleSchema.optional() }),
+  z.object({
+    type: z.literal("telegram"),
+    credentialId: z.string().min(1, "Pick the Telegram bot that starts this workflow."),
+    sample: sampleSchema.optional(),
+  }),
   z.object({
   type: z.literal("cron"),
   schedule: z

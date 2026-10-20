@@ -243,7 +243,7 @@ export const telegram: Block = {
       label: "Chat ID",
       kind: "text",
       placeholder: "e.g. 123456789",
-      hint: "Message @userinfobot on Telegram to get yours, and start a chat with your bot first. Replying to the Telegram message that started this workflow? In the first step, use {{previousOutput.chatId}}.",
+      hint: "Message @userinfobot on Telegram to get yours, and start a chat with your bot first. Replying to the Telegram message that started this workflow? Use {{trigger.chatId}}.",
     },
     {
       name: "text",

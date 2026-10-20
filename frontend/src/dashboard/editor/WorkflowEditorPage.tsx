@@ -27,6 +27,7 @@ import {
   ROOT,
   runnable,
   toPayload,
+  triggerHasData,
   uniqueName,
   validate,
   type Draft,
@@ -288,6 +289,7 @@ export default function WorkflowEditorPage() {
         step={step}
         number={number}
         earlier={earlierSteps(draft.steps, key)}
+        withTrigger={triggerHasData(draft.trigger)}
         onChange={(patch) => editStep(key, patch)}
         credentials={credentials.data ?? []}
         onSimple={friendly ? () => setAdvancedFor(false) : undefined}
@@ -531,7 +533,10 @@ function startingPoint(templateKey: string | undefined) {
   const template = TEMPLATES.find((t) => t.key === templateKey);
   if (!template) return null;
   const draft = template.build();
-  // Templates usually need one thing from you (a Slack channel): open that step.
-  const needsSetup = allSteps(draft.steps).find((s) => s.url === "{{credential}}" && !s.credentialId);
+  // Templates usually need one thing from you (a Telegram bot, a Slack channel): open that first.
+  if (draft.trigger.type === "telegram" && !draft.trigger.credentialId) return { draft, selected: "trigger", insertAt: null };
+  const needsSetup = allSteps(draft.steps).find(
+    (s) => !s.credentialId && (s.url === "{{credential}}" || s.kind === "telegram_message"),
+  );
   return { draft, selected: needsSetup?.id ?? null, insertAt: null };
 }

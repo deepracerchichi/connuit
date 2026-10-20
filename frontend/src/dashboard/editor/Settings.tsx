@@ -1,11 +1,11 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { Link } from "react-router";
-import { ArrowLeft, Clock, Footprints, Lock, Play, Plus, Send, SlidersHorizontal, Sparkles, Webhook, X } from "lucide-react";
+import { ArrowLeft, Clock, Footprints, Lock, Play, Plus, Send, SlidersHorizontal, Sparkles, Webhook, X, Zap } from "lucide-react";
 import type { Credential, Trigger } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { describeCron, WebhookUrl } from "../ui";
 import type { Block, Params } from "./blocks";
-import { CREDENTIAL, hasBody, PREVIOUS, stepToken, TOKEN_PATTERN, type EditorStep, type Method } from "./model";
+import { CREDENTIAL, hasBody, PREVIOUS, stepToken, TELEGRAM_SAMPLE, TOKEN_PATTERN, TRIGGER, type EditorStep, type Method } from "./model";
 
 /* ---------- Shared bits ---------- */
 
@@ -119,6 +119,9 @@ function TokenPreview({ text }: { text: string }) {
         const inside = part.slice(2, -2).trim();
         if (inside === "credential") return <Chip key={i} tone="ink">credential</Chip>;
         if (inside.startsWith("steps.")) return <Chip key={i} tone="mint">{inside.slice("steps.".length)}</Chip>;
+        if (inside === "trigger" || /^trigger[.[]/.test(inside)) {
+          return <Chip key={i} tone="trigger">trigger data{inside.slice("trigger".length) && ` ${inside.slice("trigger".length)}`}</Chip>;
+        }
         const field = inside.slice("previousOutput".length); // e.g. ".items[0].title", or nothing
         return <Chip key={i} tone="lime">previous step's output{field && ` ${field}`}</Chip>;
       })}
@@ -126,13 +129,14 @@ function TokenPreview({ text }: { text: string }) {
   );
 }
 
-const CHIP_TONE = { lime: "bg-accent text-ink", ink: "bg-ink text-white", mint: "bg-mint text-ink" };
+const CHIP_TONE = { lime: "bg-accent text-ink", ink: "bg-ink text-white", mint: "bg-mint text-ink", trigger: "bg-ink/10 text-ink" };
 
 function Chip({ tone, children }: { tone: keyof typeof CHIP_TONE; children: ReactNode }) {
   return (
     <span className={cn("mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-sans", CHIP_TONE[tone])}>
       {tone === "ink" && <Lock className="h-3 w-3" strokeWidth={2} />}
       {tone === "mint" && <Footprints className="h-3 w-3" strokeWidth={2} />}
+      {tone === "trigger" && <Zap className="h-3 w-3" strokeWidth={2} />}
       {children}
     </span>
   );
@@ -141,11 +145,13 @@ function Chip({ tone, children }: { tone: keyof typeof CHIP_TONE; children: Reac
 function InsertBar({
   activeField,
   withCredential,
+  withTrigger,
   earlier,
   fallback,
 }: {
   activeField: RefObject<ActiveField>;
   withCredential: boolean;
+  withTrigger: boolean; // the trigger hands the run data (a webhook, a Telegram message)
   earlier: EditorStep[]; // steps sure to have run before this one
   fallback: (token: string) => void;
 }) {
@@ -164,6 +170,11 @@ function InsertBar({
         {withCredential && (
           <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(CREDENTIAL)} className={cn(chipButton, "bg-ink text-white")}>
             <Lock className="h-3 w-3" strokeWidth={2} /> Credential
+          </button>
+        )}
+        {withTrigger && (
+          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(TRIGGER)} className={cn(chipButton, "bg-ink/10")}>
+            <Zap className="h-3 w-3" strokeWidth={2} /> Trigger data
           </button>
         )}
       </div>
@@ -214,7 +225,11 @@ export function TriggerSettings({
   const choose = (type: Trigger["type"]) => {
     if (type === trigger.type) return;
     onChange(
-      type === "cron" ? { type: "cron", schedule: "0 9 * * *" } : type === "telegram" ? { type: "telegram", credentialId: "" } : { type },
+      type === "cron"
+        ? { type: "cron", schedule: "0 9 * * *" }
+        : type === "telegram"
+          ? { type: "telegram", credentialId: "", sample: TELEGRAM_SAMPLE }
+          : { type },
     );
   };
   const bots = credentials.filter((c) => c.provider.toLowerCase() === "telegram");
@@ -287,15 +302,21 @@ export function TriggerSettings({
             <p className="rounded-xl bg-paper p-3 text-sm text-ink/60">Save the workflow to get its private URL.</p>
           )}
           <p className="text-xs leading-relaxed text-ink/50">
-            Whatever JSON the other app sends becomes the first step's <Chip tone="lime">previous step's output</Chip>.
+            Whatever JSON the other app sends is the <Chip tone="trigger">trigger data</Chip>: any step can use it, and it's also the first step's{" "}
+            <Chip tone="lime">previous step's output</Chip>.
           </p>
+          <SampleField
+            value={trigger.sample ?? ""}
+            onChange={(sample) => onChange({ ...trigger, sample })}
+            hint="Test runs (and Run now) use this instead of a real call."
+          />
         </div>
       )}
 
       {trigger.type === "telegram" && (
         <div className="flex flex-col gap-3">
           <Field label="Telegram bot" hint={<CredentialHint credentials={bots} text="Saving connects the bot to this workflow. A bot can start one workflow at a time." />}>
-            <select value={trigger.credentialId} onChange={(e) => onChange({ type: "telegram", credentialId: e.target.value })} className={inputClass}>
+            <select value={trigger.credentialId} onChange={(e) => onChange({ ...trigger, credentialId: e.target.value })} className={inputClass}>
               <option value="">Choose a saved bot…</option>
               {bots.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -305,9 +326,14 @@ export function TriggerSettings({
             </select>
           </Field>
           <p className="text-xs leading-relaxed text-ink/50">
-            Each message becomes the first step's <Chip tone="lime">previous step's output</Chip>, with its <code>text</code>, <code>chatId</code> and sender (
-            <code>from</code>). To reply, add a Send to Telegram step with chat ID {"{{previousOutput.chatId}}"} as the first step.
+            Each message is the <Chip tone="trigger">trigger data</Chip>: its <code>text</code>, <code>chatId</code> and sender (<code>from</code>). To reply from
+            any step, send to chat ID {"{{trigger.chatId}}"}.
           </p>
+          <SampleField
+            value={trigger.sample ?? ""}
+            onChange={(sample) => onChange({ ...trigger, sample })}
+            hint="Test runs use this pretend message. Put your own chat ID in it, so test replies reach you."
+          />
         </div>
       )}
     </Panel>
@@ -416,6 +442,7 @@ export function StepSettings({
   step,
   number,
   earlier,
+  withTrigger,
   onChange,
   credentials,
   onSimple,
@@ -423,6 +450,7 @@ export function StepSettings({
   step: EditorStep;
   number: number;
   earlier: EditorStep[]; // steps sure to have run before this one, for the output chips
+  withTrigger: boolean; // offer the "Trigger data" chip
   onChange: (patch: Partial<EditorStep>) => void;
   credentials: Credential[];
   onSimple?: () => void; // set when this step can also be shown as a friendly block
@@ -447,7 +475,7 @@ export function StepSettings({
     return (
       <Panel eyebrow={`Step ${number} · AI`} title={step.name.trim() || "Untitled step"}>
         {nameField}
-        <InsertBar activeField={activeField} withCredential={false} earlier={earlier} fallback={(t) => onChange({ prompt: step.prompt + t })} />
+        <InsertBar activeField={activeField} withCredential={false} withTrigger={withTrigger} earlier={earlier} fallback={(t) => onChange({ prompt: step.prompt + t })} />
         <Field label="Prompt" hint="The AI only sees what you write here. Drop in the previous step's output where it should read it.">
           <TokenInput value={step.prompt} onChange={(prompt) => onChange({ prompt })} activeField={activeField} multiline rows={7} />
         </Field>
@@ -480,7 +508,7 @@ export function StepSettings({
         </div>
       </Field>
 
-      <InsertBar activeField={activeField} withCredential earlier={earlier} fallback={(t) => onChange({ url: step.url + t })} />
+      <InsertBar activeField={activeField} withCredential withTrigger={withTrigger} earlier={earlier} fallback={(t) => onChange({ url: step.url + t })} />
 
       <Field label="URL">
         <TokenInput value={step.url} onChange={(url) => onChange({ url })} activeField={activeField} placeholder="https://api.example.com/data" mono />
@@ -565,6 +593,22 @@ export function StepSettings({
         </Field>
       )}
     </Panel>
+  );
+}
+
+// Pretend trigger data for test runs of workflows something else starts.
+function SampleField({ value, onChange, hint }: { value: string; onChange: (value: string) => void; hint: string }) {
+  return (
+    <Field label="Sample data for test runs (JSON)" hint={value.trim() ? <BodyStatus body={value} /> : hint}>
+      <textarea
+        rows={5}
+        value={value}
+        placeholder={'{ "name": "Dana", "email": "dana@example.com" }'}
+        onChange={(e) => onChange(e.target.value)}
+        spellCheck={false}
+        className={cn(inputClass, "font-mono text-xs leading-relaxed")}
+      />
+    </Field>
   );
 }
 

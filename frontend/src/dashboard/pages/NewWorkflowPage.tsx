@@ -94,15 +94,17 @@ function MiniPipe({ steps }: { steps: EditorStep[] }) {
           <block.icon className="h-3.5 w-3.5" strokeWidth={1.75} />
           {block.label}
         </span>
-        {step.yes.length > 0 && (
-          <>
-            <span className="h-0.5 w-4 rounded-full bg-ink" />
-            <span className="flex flex-wrap items-center gap-1.5 rounded-xl border border-dashed border-ink/30 p-1.5">
-              <span className="px-1 font-mono text-[10px] uppercase text-ink/55">If yes</span>
-              <MiniPipe steps={step.yes} />
-            </span>
-          </>
-        )}
+        {(["yes", "no"] as const)
+          .filter((path) => step[path].length > 0)
+          .map((path) => (
+            <Fragment key={path}>
+              <span className="h-0.5 w-4 rounded-full bg-ink" />
+              <span className="flex flex-wrap items-center gap-1.5 rounded-xl border border-dashed border-ink/30 p-1.5">
+                <span className="px-1 font-mono text-[10px] uppercase text-ink/55">If {path}</span>
+                <MiniPipe steps={step[path]} />
+              </span>
+            </Fragment>
+          ))}
       </Fragment>
     );
   });

@@ -63,7 +63,7 @@ export async function runWorkflow(
         outputs.set(node.id, stepInput); // an If step passes its input straight through
         outputsByName.set(node.name, stepInput);
       } else {
-        const output = await executeNode(node, credentialValues, stepInput, outputsByName);
+        const output = await executeNode(node, credentialValues, stepInput, outputsByName, input); // input: what started the run, for {{trigger}}
         step.output = output;
         outputs.set(node.id, output);
         outputsByName.set(node.name, output);

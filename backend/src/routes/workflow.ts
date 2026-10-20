@@ -15,6 +15,12 @@ import type { Trigger } from "../domain/workflow.js";
 
 export const workflowsRouter = Router();
 
+// A trigger's saved example data (validated as JSON when saved), or nothing.
+function sampleInput(trigger: Trigger): unknown {
+  if ((trigger.type !== "webhook" && trigger.type !== "telegram") || !trigger.sample) return undefined;
+  return JSON.parse(trigger.sample);
+}
+
 // Webhook and Telegram triggers are both reached through a URL with the workflow's own token.
 const needsWebhookToken = (trigger: Trigger) => trigger.type === "webhook" || trigger.type === "telegram";
 
@@ -88,9 +94,12 @@ workflowsRouter.post("/:id/runs", async (req, res) => {
     throw new AppError("Workflow not found", 404);
   }
 
+  // Running by hand a workflow that something else normally starts: use the input sent with the
+  // request, or else the trigger's saved sample, so {{trigger…}} and the first step have data.
+  const input = req.body?.input ?? sampleInput(workflow.trigger as Trigger);
   const runId = crypto.randomUUID();
-await runQueue.add("run", { workflowId: workflow.id, userId, runId });
-return res.status(202).json({ message: "Run queued", runId });
+  await runQueue.add("run", { workflowId: workflow.id, userId, runId, input });
+  return res.status(202).json({ message: "Run queued", runId });
 
 });
 
