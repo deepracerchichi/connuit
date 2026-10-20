@@ -1,4 +1,4 @@
-import { CloudSun, Code, GitFork, Globe, Hash, MessageSquare, Newspaper, Sparkles, type LucideIcon } from "lucide-react";
+import { CloudSun, Code, GitFork, Globe, Hash, MessageSquare, Newspaper, Send, Sparkles, type LucideIcon } from "lucide-react";
 import { CREDENTIAL, makeStep, PREVIOUS, TOKEN_PATTERN, type EditorStep } from "./model";
 
 // Friendly building blocks. The backend only has two step types (an HTTP request and an
@@ -16,6 +16,7 @@ export interface BlockField {
   options?: { value: string; label: string }[];
   placeholder?: string;
   hint?: string;
+  provider?: string; // credential fields: only offer credentials saved under this provider
   showIf?: (params: Params) => boolean;
 }
 
@@ -220,9 +221,46 @@ export const decide: Block = {
   summary: (p) => p.question.trim() || "No question yet",
 };
 
+/* ---------- Telegram: a message from your bot (the credential holds its token) ---------- */
+
+export const telegram: Block = {
+  key: "telegram",
+  label: "Send to Telegram",
+  description: "Message a chat from your bot",
+  icon: Send,
+  simpleOnly: true, // it's its own step type: there's no raw request to show
+  fields: [
+    {
+      name: "credentialId",
+      label: "Telegram bot",
+      kind: "credential",
+      provider: "telegram",
+      placeholder: "Choose a saved bot…",
+      hint: "Create a bot with @BotFather, save its token under Credentials (provider: Telegram), then pick it here.",
+    },
+    {
+      name: "chatId",
+      label: "Chat ID",
+      kind: "text",
+      placeholder: "e.g. 123456789",
+      hint: "Message @userinfobot on Telegram to get yours, and start a chat with your bot first. Replying to the Telegram message that started this workflow? In the first step, use {{previousOutput.chatId}}.",
+    },
+    {
+      name: "text",
+      label: "Message",
+      kind: "textarea",
+      hint: "{{previousOutput}} sends the previous step's output. Telegram allows up to 4,096 characters.",
+    },
+  ],
+  create: () => makeStep({ kind: "telegram_message", name: "Send to Telegram", text: PREVIOUS }),
+  read: (step) => (step.kind === "telegram_message" ? { credentialId: step.credentialId, chatId: step.chatId, text: step.text } : null),
+  write: (p) => ({ credentialId: p.credentialId ?? "", chatId: p.chatId ?? "", text: p.text ?? "" }), // no trimming mid-typing
+  summary: (p) => (!p.credentialId ? "Pick a bot" : p.chatId.trim() ? `To chat ${p.chatId.trim()}` : "No chat ID yet"),
+};
+
 // Order matters: specific blocks first, the catch-all last.
 // (Branches aren't a block: you add one from a step's free outlet.)
-export const BLOCKS: Block[] = [hackerNews, weather, fetchUrl, askAi, decide, slack, discord, custom];
+export const BLOCKS: Block[] = [hackerNews, weather, fetchUrl, askAi, decide, slack, discord, telegram, custom];
 
 export function detectBlock(step: EditorStep): { block: Block; params: Params } {
   for (const block of BLOCKS) {

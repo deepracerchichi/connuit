@@ -13,7 +13,8 @@ export type NodeConfig =
       credentialId?: string;
     }
   | { type: "llm_call"; prompt: string; systemPrompt?: string }
-  | { type: "condition"; question: string }; // an If step: the AI answers yes or no
+  | { type: "condition"; question: string } // an If step: the AI answers yes or no
+  | { type: "telegram_message"; credentialId: string; chatId: string; text: string }; // credential = the bot token
 
 export type Branch = "yes" | "no";
 

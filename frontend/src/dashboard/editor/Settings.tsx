@@ -302,6 +302,10 @@ export function FriendlySettings({
   credentials: Credential[];
   onAdvanced?: () => void; // not set for blocks that have no advanced form (If)
 }) {
+  // A credential field can ask for one provider; saved names vary in case ("Telegram" vs "telegram").
+  const credentialsFor = (provider?: string) =>
+    provider ? credentials.filter((c) => c.provider.toLowerCase() === provider.toLowerCase()) : credentials;
+
   // Answering a question rewrites the underlying request through the block.
   const answer = (name: string, value: string) => onChange(block.write({ ...params, [name]: value }));
 
@@ -314,7 +318,7 @@ export function FriendlySettings({
       {block.fields
         .filter((field) => !field.showIf || field.showIf(params))
         .map((field) => (
-          <Field key={field.name} label={field.label} hint={field.kind === "credential" ? <CredentialHint credentials={credentials} text={field.hint} /> : field.hint}>
+          <Field key={field.name} label={field.label} hint={field.kind === "credential" ? <CredentialHint credentials={credentialsFor(field.provider)} text={field.hint} /> : field.hint}>
             {field.kind === "textarea" ? (
               <textarea
                 rows={5}
@@ -333,8 +337,8 @@ export function FriendlySettings({
               </select>
             ) : field.kind === "credential" ? (
               <select value={params[field.name] ?? ""} onChange={(e) => answer(field.name, e.target.value)} className={inputClass}>
-                <option value="">Choose a saved channel…</option>
-                {credentials.map((c) => (
+                <option value="">{field.placeholder ?? "Choose a saved channel…"}</option>
+                {credentialsFor(field.provider).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.provider})
                   </option>
