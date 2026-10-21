@@ -23,27 +23,31 @@ export function AuthLayout({
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
 
-  // Page entrance: the video frame opens up, then the form rises in line by line.
+  // Page entrance: on desktop the video frame opens up first; then the form rises in line by line.
+  // (Phones have no video panel, so the form rises straight away.)
   useGSAP(() => {
     const mm = gsap.matchMedia();
-    mm.add("(prefers-reduced-motion: no-preference)", () => {
-      gsap
-        .timeline()
-        .fromTo(
+    mm.add({ motion: "(prefers-reduced-motion: no-preference)", desktop: "(min-width: 1024px)" }, (context) => {
+      const { motion, desktop } = context.conditions as { motion: boolean; desktop: boolean };
+      if (!motion) return;
+      const timeline = gsap.timeline();
+      if (desktop) {
+        timeline.fromTo(
           ".js-auth-frame",
           { clipPath: "inset(50% 50% 50% 50% round 24px)" },
           { clipPath: "inset(0% 0% 0% 0% round 24px)", duration: 1.1, ease: "expo.inOut", clearProps: "clipPath" },
-        )
-        .from(".js-auth-rise", { autoAlpha: 0, y: 24, duration: 0.7, stagger: 0.07, ease: "power3.out" }, "-=0.5");
+        );
+      }
+      timeline.from(".js-auth-rise", { autoAlpha: 0, y: 24, duration: 0.7, stagger: 0.07, ease: "power3.out" }, desktop ? "-=0.5" : 0);
     });
     return () => mm.revert();
   }, { scope: pageRef });
 
   return (
     <div ref={pageRef} className="min-h-svh bg-paper text-ink lg:grid lg:grid-cols-[1.1fr_1fr]">
-      {/* ---------- Visual side ---------- */}
-      <div className="p-2 lg:p-3">
-        <div className="js-auth-frame relative h-56 overflow-hidden rounded-2xl bg-black lg:sticky lg:top-3 lg:h-[calc(100svh-1.5rem)] lg:rounded-3xl">
+      {/* ---------- Visual side: desktop only (on phones it just pushed the form down) ---------- */}
+      <div className="hidden lg:block lg:p-3">
+        <div className="js-auth-frame relative overflow-hidden bg-black lg:sticky lg:top-3 lg:h-[calc(100svh-1.5rem)] lg:rounded-3xl">
           <video autoPlay muted loop playsInline className="absolute inset-0 h-full w-full object-cover">
             <source src="/herobg2.mp4" type="video/mp4" />
           </video>
