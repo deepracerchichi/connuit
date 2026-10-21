@@ -18,14 +18,17 @@ export default function Hero({ ref }: { ref?: Ref<HTMLDivElement> }) {
 
     <Nav />
 
-    <section ref={ref} className="js-hero relative z-10 flex min-h-svh flex-col justify-between px-2 pb-6 pt-28 md:block md:h-screen md:min-h-0 md:p-5 md:pt-32">
+    {/* Headline at the top, subtext and button at the bottom of the video box, whatever the window's
+        height (it used to sit a fixed 600px down, which fell out of the box on short laptop screens). */}
+    <section ref={ref} className="js-hero relative z-10 flex min-h-svh flex-col justify-between px-2 pb-6 pt-28 md:p-5 md:pb-10 md:pt-32">
 
-      <div className="js-headline relative z-20 p-4 text-5xl leading-[1.05] tracking-tight font-sans text-white md:p-10 md:text-8xl md:leading-none">
+      {/* Big on tall screens (6rem), smaller on short ones (13% of the height), never below 3.5rem. */}
+      <div className="js-headline relative z-20 p-4 text-5xl leading-[1.05] tracking-tight font-sans text-white md:p-10 md:text-[clamp(3.5rem,min(7vw,13vh),6rem)] md:leading-none">
         <span className="block">Teach your workflows to</span>
         <span className="block">make decisions.</span>
       </div>
 
-      <div className="js-subtext-row relative z-20 flex flex-col items-start gap-8 p-4 md:mt-40 md:mb-20 md:flex-row md:items-center md:justify-between md:p-10">
+      <div className="js-subtext-row relative z-20 flex flex-col items-start gap-8 p-4 md:mt-12 md:flex-row md:items-center md:justify-between md:p-10">
         <div>
           <p className="text-white text-lg text-wrap md:text-2xl">
             Connect any API, trigger on your schedule, and let AI handle the judgment calls.
