@@ -6,7 +6,7 @@ import type { Branch, NodeConfig, Trigger, Workflow, WorkflowEdge, WorkflowNode 
 // After either, the paths join back into the list they sit in, so the next step carries on
 // from whichever ran. The API stores nodes plus edges, so these helpers convert between the two.
 
-export type StepKind = "http_request" | "llm_call" | "condition" | "telegram_message" | "split";
+export type StepKind = "http_request" | "llm_call" | "condition" | "telegram_message" | "gmail_send" | "split";
 export type Method = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface HeaderRow {
@@ -27,7 +27,9 @@ export interface EditorStep {
   systemPrompt: string;
   question: string; // If steps: what the AI answers yes or no to
   chatId: string; // Telegram steps: who gets the message
-  text: string; // Telegram steps: the message itself
+  text: string; // Telegram and Gmail steps: the message itself
+  to: string; // Gmail steps: recipients, comma-separated
+  subject: string; // Gmail steps
   yes: EditorStep[]; // If steps: the path taken on "yes" (always empty for other steps)
   no: EditorStep[];
   lanes: EditorStep[][]; // splits: the paths that each get the previous step's output
@@ -77,6 +79,8 @@ export function makeStep(fields: Partial<EditorStep> & Pick<EditorStep, "kind" |
     question: "",
     chatId: "",
     text: "",
+    to: "",
+    subject: "",
     yes: [],
     no: [],
     lanes: [],
@@ -139,7 +143,7 @@ export function outletCount(list: EditorStep[], index: number) {
 export function canBranch(list: EditorStep[], index: number) {
   const step = list[index];
   const outlets = outletCount(list, index);
-  return (step.kind === "http_request" || step.kind === "llm_call" || step.kind === "telegram_message") && outlets >= 1 && outlets < MAX_OUTLETS;
+  return (step.kind === "http_request" || step.kind === "llm_call" || step.kind === "telegram_message" || step.kind === "gmail_send") && outlets >= 1 && outlets < MAX_OUTLETS;
 }
 
 // Adds `step` as a new branch of the step at `index`, above or below the existing ones. The
@@ -279,6 +283,9 @@ function toStep(node: WorkflowNode): EditorStep {
   if (config.type === "telegram_message") {
     return makeStep({ id: node.id, kind: "telegram_message", name: node.name, credentialId: config.credentialId, chatId: config.chatId, text: config.text });
   }
+  if (config.type === "gmail_send") {
+    return makeStep({ id: node.id, kind: "gmail_send", name: node.name, credentialId: config.credentialId, to: config.to, subject: config.subject, text: config.text });
+  }
   return makeStep({
     id: node.id,
     kind: "http_request",
@@ -383,6 +390,9 @@ function toNode(step: EditorStep): WorkflowNode {
   }
   if (step.kind === "telegram_message") {
     return { id: step.id, name, config: { type: "telegram_message", credentialId: step.credentialId, chatId: step.chatId.trim(), text: step.text } };
+  }
+  if (step.kind === "gmail_send") {
+    return { id: step.id, name, config: { type: "gmail_send", credentialId: step.credentialId, to: step.to.trim(), subject: step.subject, text: step.text } };
   }
   const headers = Object.fromEntries(step.headers.filter((h) => h.key.trim()).map((h) => [h.key.trim(), h.value]));
   const config: NodeConfig = {
@@ -505,6 +515,11 @@ export function validate(draft: Draft): Problems | null {
     } else if (step.kind === "telegram_message") {
       if (!step.credentialId) steps[step.id] = "Pick the Telegram bot to send from.";
       else if (!step.chatId.trim()) steps[step.id] = "Enter the chat ID to send to.";
+      else if (!step.text.trim()) steps[step.id] = "Write the message to send.";
+    } else if (step.kind === "gmail_send") {
+      if (!step.credentialId) steps[step.id] = "Pick the Gmail account to send from.";
+      else if (!step.to.trim()) steps[step.id] = "Enter who to send it to.";
+      else if (!step.subject.trim()) steps[step.id] = "Write a subject.";
       else if (!step.text.trim()) steps[step.id] = "Write the message to send.";
     } else if (step.kind === "http_request") {
       if (!isUrlOrPlaceholder(step.url.trim())) steps[step.id] = "Enter a full URL, like https://api.example.com/data.";

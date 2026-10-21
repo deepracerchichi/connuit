@@ -52,7 +52,9 @@ async function resolveCredentials(workflow: Workflow, userId: string): Promise<M
 
   for (const node of workflow.nodes) {
     const credentialId =
-      node.config.type === "http_request" || node.config.type === "telegram_message" ? node.config.credentialId : undefined;
+      node.config.type === "http_request" || node.config.type === "telegram_message" || node.config.type === "gmail_send"
+        ? node.config.credentialId
+        : undefined;
     if (!credentialId || credentialValues.has(credentialId)) continue;
 
     const credential = await CredentialModel.findOne({ _id: credentialId, userId });

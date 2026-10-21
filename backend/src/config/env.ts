@@ -21,6 +21,9 @@ const envSchema = z.object({
   // On Railway it's worked out from RAILWAY_PUBLIC_DOMAIN, which Railway sets itself.
   PUBLIC_API_URL: z.url().optional(),
   RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
+  // Google OAuth client (Google Cloud Console → Google Auth Platform → Clients), for the Send Gmail step.
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

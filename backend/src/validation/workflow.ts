@@ -29,6 +29,13 @@ const nodeConfigSchema = z.discriminatedUnion("type", [
 }),
 
   z.object({
+    type: z.literal("gmail_send"),
+    credentialId: z.string().min(1),
+    to: z.string().min(1),
+    subject: z.string().min(1),
+    text: z.string().min(1),
+  }),
+  z.object({
     type: z.literal("telegram_message"),
     credentialId: z.string().min(1),
     chatId: z.string().min(1),

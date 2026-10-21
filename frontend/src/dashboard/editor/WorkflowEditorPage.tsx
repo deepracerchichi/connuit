@@ -536,7 +536,7 @@ function startingPoint(templateKey: string | undefined) {
   // Templates usually need one thing from you (a Telegram bot, a Slack channel): open that first.
   if (draft.trigger.type === "telegram" && !draft.trigger.credentialId) return { draft, selected: "trigger", insertAt: null };
   const needsSetup = allSteps(draft.steps).find(
-    (s) => !s.credentialId && (s.url === "{{credential}}" || s.kind === "telegram_message"),
+    (s) => !s.credentialId && (s.url === "{{credential}}" || s.kind === "telegram_message" || s.kind === "gmail_send"),
   );
   return { draft, selected: needsSetup?.id ?? null, insertAt: null };
 }

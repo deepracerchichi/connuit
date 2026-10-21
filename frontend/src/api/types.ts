@@ -18,7 +18,8 @@ export type NodeConfig =
     }
   | { type: "llm_call"; prompt: string; systemPrompt?: string }
   | { type: "condition"; question: string } // an If step: the AI answers yes or no
-  | { type: "telegram_message"; credentialId: string; chatId: string; text: string }; // credential = the bot token
+  | { type: "telegram_message"; credentialId: string; chatId: string; text: string } // credential = the bot token
+  | { type: "gmail_send"; credentialId: string; to: string; subject: string; text: string }; // credential = a connected Gmail
 
 export type Branch = "yes" | "no";
 
