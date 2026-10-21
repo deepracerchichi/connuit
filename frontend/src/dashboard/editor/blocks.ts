@@ -273,7 +273,7 @@ export const gmail: Block = {
       kind: "credential",
       provider: "google",
       placeholder: "Choose a connected Gmail…",
-      hint: "Connect Gmail under Credentials first. While Conduit's Google app is in testing, a connection lasts 7 days; then reconnect.",
+      hint: "Connect Gmail under Credentials first. While Connuit's Google app is in testing, a connection lasts 7 days; then reconnect.",
     },
     { name: "to", label: "To", kind: "text", placeholder: "name@company.com, or {{trigger.email}}", hint: "Several people? Separate them with commas." },
     { name: "subject", label: "Subject", kind: "text", placeholder: "e.g. Your weekly summary" },

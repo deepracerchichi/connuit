@@ -28,7 +28,7 @@ const STEPS: { title: string; body: string; spec: string; visual: VisualKind }[]
   },
   {
     title: "See everything that happened",
-    body: "Every run is saved step by step, and if something fails, Conduit tries again on its own.",
+    body: "Every run is saved step by step, and if something fails, Connuit tries again on its own.",
     spec: "Durable job queue · automatic retries with backoff · full run history",
     visual: "runs",
   },

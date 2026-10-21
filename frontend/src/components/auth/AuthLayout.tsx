@@ -54,7 +54,7 @@ export function AuthLayout({
           <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/20 to-black/30" />
 
           <Link to="/" className="absolute left-5 top-5 lg:left-8 lg:top-8">
-            <img src="/Logo.svg" alt="Conduit" className="h-7 w-auto lg:h-8" />
+            <img src="/Logo.svg" alt="Connuit" className="h-7 w-auto lg:h-8" />
           </Link>
 
           <div className="absolute inset-x-5 bottom-5 lg:inset-x-8 lg:bottom-8">

@@ -227,7 +227,7 @@ function ChatMessage({ channel, children }: { channel: string; children: ReactNo
         </span>
         <div className="min-w-0 text-sm leading-relaxed">
           <div className="flex items-baseline gap-2">
-            <span className="font-medium">Conduit</span>
+            <span className="font-medium">Connuit</span>
             <span className="rounded bg-ink/10 px-1 text-[10px] uppercase">App</span>
             <span className="text-xs text-ink/45">8:45 AM</span>
           </div>

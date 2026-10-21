@@ -64,7 +64,7 @@ export async function reserveAiCall(userId: string): Promise<void> {
   if (!(await take(PLATFORM, day, env.AI_CALLS_PER_DAY_TOTAL))) {
     // Give the user theirs back: this call never happened.
     await UsageModel.updateOne({ userId, day }, { $inc: { aiCalls: -1 } });
-    throw new UsageLimitError(`Conduit has reached its AI limit for today. AI steps work again at midnight UTC (${hoursUntilReset()}).`);
+    throw new UsageLimitError(`Connuit has reached its AI limit for today. AI steps work again at midnight UTC (${hoursUntilReset()}).`);
   }
 }
 

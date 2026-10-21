@@ -68,7 +68,7 @@ export default function Nav() {
         <div className="hidden items-center justify-between md:flex">
           <a href="/" onClick={(e) => { e.preventDefault(); scrollToTop(); }} className="relative rounded-md px-4 py-3">
             <div className="js-logo-pill absolute inset-0 rounded-md bg-gray-200 opacity-0" />
-            <img src="/Logo.svg" alt="Conduit" className="relative h-8 w-auto" />
+            <img src="/Logo.svg" alt="Connuit" className="relative h-8 w-auto" />
             <img src="/Logo-scroll.svg" alt="" aria-hidden="true" className="js-logo-scroll absolute left-4 top-3 h-8 w-auto opacity-0" />
           </a>
 
@@ -92,7 +92,7 @@ export default function Nav() {
         {/* ---------- Mobile bar (IntegratedBio style) ---------- */}
         <div className="flex h-16 items-center justify-between rounded-2xl bg-white/85 py-2 pl-4 pr-2 backdrop-blur-md md:hidden">
           <a href="/" onClick={(e) => { e.preventDefault(); scrollToTop(); }}>
-            <img src="/Logo-scroll.svg" alt="Conduit" className="h-7 w-auto" />
+            <img src="/Logo-scroll.svg" alt="Connuit" className="h-7 w-auto" />
           </a>
           <button
             type="button"
@@ -124,7 +124,7 @@ export default function Nav() {
 
         <div className="relative mx-3 mt-3 flex h-16 items-center justify-between rounded-2xl bg-white/10 py-2 pl-4 pr-2">
           <a href="/" onClick={(e) => { e.preventDefault(); close(); scrollToTop(); }}>
-            <img src="/Logo.svg" alt="Conduit" className="h-7 w-auto" />
+            <img src="/Logo.svg" alt="Connuit" className="h-7 w-auto" />
           </a>
           <button
             ref={closeButtonRef}
@@ -161,12 +161,12 @@ export default function Nav() {
 
         <div className="js-menu-rise relative pb-10 text-center">
           <a
-            href="https://github.com/deepracerchichi/conduit"
+            href="https://github.com/deepracerchichi/connuit"
             target="_blank"
             rel="noreferrer"
             className="border-b border-accent pb-1 text-lg"
           >
-            github.com/deepracerchichi/conduit
+            github.com/deepracerchichi/connuit
           </a>
         </div>
       </div>

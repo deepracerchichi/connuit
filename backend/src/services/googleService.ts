@@ -75,7 +75,7 @@ async function accessToken(refreshToken: string): Promise<string> {
   if (ok && body.access_token) return body.access_token;
   if (body.error === "invalid_grant") {
     throw new Error(
-      "Gmail: the connection expired or was revoked. Reconnect Gmail under Credentials (while Conduit's Google app is in testing, connections last 7 days).",
+      "Gmail: the connection expired or was revoked. Reconnect Gmail under Credentials (while Connuit's Google app is in testing, connections last 7 days).",
     );
   }
   throw new Error(`Gmail: ${body.error_description ?? body.error ?? "couldn't get access"}`);

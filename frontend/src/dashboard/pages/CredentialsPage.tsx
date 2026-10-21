@@ -14,7 +14,7 @@ const PROVIDERS = ["Slack", "Discord", "Telegram", "OpenAI", "GitHub", "Other"];
 const GOOGLE_OUTCOMES: Record<string, { ok: boolean; text: string }> = {
   connected: { ok: true, text: "Gmail connected. Add a Send Gmail step to a workflow to use it." },
   cancelled: { ok: false, text: "Gmail wasn't connected: you cancelled on Google's screen." },
-  "no-send-permission": { ok: false, text: "Gmail wasn't connected: leave “Send email on your behalf” ticked on Google's screen, or Conduit can't send." },
+  "no-send-permission": { ok: false, text: "Gmail wasn't connected: leave “Send email on your behalf” ticked on Google's screen, or Connuit can't send." },
   expired: { ok: false, text: "That took too long, or the link was used twice. Try connecting again." },
   failed: { ok: false, text: "Google didn't complete the connection. Try again; if it keeps failing, check your account is a test user on the Google app." },
 };

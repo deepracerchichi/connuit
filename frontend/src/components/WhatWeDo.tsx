@@ -7,7 +7,7 @@ import { SplitText } from "gsap/SplitText";
 gsap.registerPlugin(ScrollTrigger, SplitText);
 
 const STATEMENTS = [
-  "Conduit turns your tools into workflows that run on their own, triggered by a schedule, another app, or a single click.",
+  "Connuit turns your tools into workflows that run on their own, triggered by a schedule, another app, or a single click.",
   "Every step can call an API or hand the decision to AI, so your workflows don't just move data, they make judgment calls.",
   "Runs survive failures with automatic retries and a full history of every step, so you always know what happened and why.",
 ];

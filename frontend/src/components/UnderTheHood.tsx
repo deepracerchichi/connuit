@@ -129,7 +129,7 @@ export default function UnderTheHood() {
             <span className="h-3 w-3 rounded-full bg-white/15" />
             <span className="h-3 w-3 rounded-full bg-white/15" />
             <span className="h-3 w-3 rounded-full bg-white/15" />
-            <span className="ml-3 font-mono text-xs text-white/45">conduit-worker · run log</span>
+            <span className="ml-3 font-mono text-xs text-white/45">connuit-worker · run log</span>
           </div>
           <ol className="flex flex-col gap-2 overflow-x-auto p-5 font-mono text-xs leading-relaxed md:p-6 md:text-sm">
             {LOG.map((line, i) => (

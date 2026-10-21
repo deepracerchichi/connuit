@@ -87,7 +87,7 @@ export default function Footer() {
             <p className="font-mono text-sm uppercase">Connect</p>
             <ul className="mt-5 flex flex-col gap-1.5">
               <li>
-                <a href="https://github.com/deepracerchichi/conduit" target="_blank" rel="noreferrer" className={linkClass}>
+                <a href="https://github.com/deepracerchichi/connuit" target="_blank" rel="noreferrer" className={linkClass}>
                   GitHub
                 </a>
               </li>
@@ -101,14 +101,14 @@ export default function Footer() {
 
       <div className="mt-auto pt-24">
         <p className="text-right font-mono text-xs uppercase leading-relaxed md:text-left">
-          © {new Date().getFullYear()} Conduit. Built by Chinyere Ukpong.
+          © {new Date().getFullYear()} Connuit. Built by Chinyere Ukpong.
         </p>
         {/* Sized in vw so the word always spans the full width. */}
         <p
           aria-hidden="true"
           className="js-footer-wordmark mb-[-0.12em] mt-2 whitespace-nowrap text-[26.4vw] leading-[0.85] md:text-[27.8vw] tracking-[-0.04em]"
         >
-          Conduit
+          Connuit
         </p>
       </div>
     </footer>

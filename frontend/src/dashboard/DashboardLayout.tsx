@@ -54,7 +54,7 @@ export default function DashboardLayout() {
           {/* When collapsed, the box narrows so only the mark at the left of the logo shows */}
           <Link
             to="/"
-            aria-label="Conduit home"
+            aria-label="Connuit home"
             className={cn("overflow-hidden py-3 transition-[width,padding] duration-500", collapsed ? "w-12 px-0" : "w-full px-2")}
           >
             <img src="/Logo.svg" alt="" className="h-7 w-auto max-w-none" />
@@ -185,7 +185,7 @@ function MobileNav({ email, onLogOut }: { email?: string; onLogOut: () => void }
       <div className="sticky top-0 z-40 p-3 lg:hidden">
         <div className="flex h-16 items-center justify-between rounded-2xl bg-white/85 py-2 pl-4 pr-2 shadow-sm backdrop-blur-md">
           <Link to="/">
-            <img src="/Logo-scroll.svg" alt="Conduit" className="h-7 w-auto" />
+            <img src="/Logo-scroll.svg" alt="Connuit" className="h-7 w-auto" />
           </Link>
           <button
             type="button"
@@ -211,7 +211,7 @@ function MobileNav({ email, onLogOut }: { email?: string; onLogOut: () => void }
           <MenuPattern />
 
           <div className="relative mx-3 mt-3 flex h-16 items-center justify-between rounded-2xl bg-white/10 py-2 pl-4 pr-2">
-            <img src="/Logo.svg" alt="Conduit" className="h-7 w-auto" />
+            <img src="/Logo.svg" alt="Connuit" className="h-7 w-auto" />
             <button
               type="button"
               onClick={() => setOpen(false)}
