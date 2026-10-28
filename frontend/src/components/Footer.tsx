@@ -91,6 +91,12 @@ export default function Footer() {
                   GitHub
                 </a>
               </li>
+              <li>
+                <Link to="/privacy" className={linkClass}>Privacy</Link>
+              </li>
+              <li>
+                <Link to="/terms" className={linkClass}>Terms</Link>
+              </li>
             </ul>
           </div>
           <BackToTop className="flex md:hidden" />

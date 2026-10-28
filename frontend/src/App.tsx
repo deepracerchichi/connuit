@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router";
 import LandingPage from "./pages/landingPage";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
+import { PrivacyPage, TermsPage } from "./pages/LegalPage";
 import DashboardLayout, { RequireAuth } from "./dashboard/DashboardLayout";
 import OverviewPage from "./dashboard/pages/OverviewPage";
 import WorkflowsPage from "./dashboard/pages/WorkflowsPage";
@@ -18,6 +19,8 @@ export default function App() {
         <Route path="/" element={<LandingPage/>} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
         {/* Only the canvas editor is full screen (no sidebar). One route on purpose:
             /dashboard/workflows/new/<template> (from the gallery) and /dashboard/workflows/<id>
             both match it, so when saving turns the first into the second the editor isn't
